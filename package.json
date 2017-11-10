@@ -1,0 +1,41 @@
+{
+  "name": "rocket-quiz",
+  "version": "0.1.0",
+  "description": "quiz-bot for rocket-chat",
+  "main": "index.js",
+  "author": "Remo Zumsteg <remolueoend@users.noreply.github.com>",
+  "license": "GPL 3.0",
+  "dependencies": {
+    "amqplib": "^0.5.1",
+    "minimist": "^1.2.0",
+    "ramda": "^0.25.0",
+    "uuid": "^3.1.0",
+    "ws": "^3.3.1"
+  },
+  "devDependencies": {
+    "@types/amqplib": "^0.5.4",
+    "@types/chai": "^4.0.4",
+    "@types/chai-as-promised": "^7.1.0",
+    "@types/minimist": "^1.2.0",
+    "@types/mocha": "^2.2.44",
+    "@types/node": "^8.0.50",
+    "@types/ramda": "^0.25.3",
+    "@types/sinon-chai": "^2.7.29",
+    "@types/uuid": "^3.4.3",
+    "@types/ws": "^3.2.0",
+    "chai": "^4.1.2",
+    "chai-as-promised": "^7.1.1",
+    "mocha": "^4.0.1",
+    "mocha-webpack": "^1.0.1",
+    "sinon": "^4.1.2",
+    "sinon-chai": "^2.14.0",
+    "source-map-support": "^0.5.0",
+    "ts-loader": "^3.1.1",
+    "typescript": "^2.6.1",
+    "webpack": "^3.8.1"
+  },
+  "scripts": {
+    "test": "node ./node_modules/.bin/mocha-webpack --opts ./test/mocha-webpack.opts",
+    "test:watch": "npm run test -- --watch"
+  }
+}
