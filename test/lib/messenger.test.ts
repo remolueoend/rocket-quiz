@@ -3,7 +3,11 @@ import { assert, expect } from 'chai'
 import chaiAsPromised = require('chai-as-promised')
 import sinonChai = require('sinon-chai')
 import { spy, stub } from 'sinon'
-import { createJsonMessage } from '../../src/lib/message-helpers'
+import {
+  createJsonMessage,
+  MESSAGE_TYPE,
+  createRequestMessage,
+} from '../../src/lib/message-helpers'
 import { createMessenger, Messenger, Events } from '../../src/lib/messenger'
 import { createMessengers, waitFor } from '../helpers'
 
@@ -29,7 +33,7 @@ describe('messenger', () => {
         ).then(([sender, rec]) => {
           // if message is not received the test will fail with a timeout:
           rec.on(Events.message, () => done())
-          sender.sendToQueue(rec.queue, createJsonMessage({ data: 'test' }))
+          sender.sendToQueue(rec.moduleQueue, createJsonMessage({ data: 'test' }))
         })
       })
     })
@@ -46,8 +50,13 @@ describe('messenger', () => {
           rec.on(Events.request, () => done())
           sender
             .sendRequest(
-              rec.queue,
-              createJsonMessage({ data: 'test' }, 'test-method'),
+              rec.moduleQueue,
+              createRequestMessage(
+                {
+                  data: 'test',
+                },
+                'test-method',
+              ),
             )
             .catch(() => {
               // will throw because there is no valid action registered for this call.
@@ -55,7 +64,7 @@ describe('messenger', () => {
         })
       })
     })
-    describe('handleRequst', () => {
+    describe('handleRequest', () => {
       let sender: Messenger
       let rec: Messenger
 
@@ -73,11 +82,15 @@ describe('messenger', () => {
         })
       })
 
+      it('rejects if the provided method does not exist', () => {
+        return expect(sender.call(rec.moduleQueue, 'not-existing-method')).rejected
+      })
+
       it('responds to a request with the method result', done => {
         const method = 'test-method'
         const response = 'test-result'
         rec.register(method, () => response)
-        sender.call<string>(rec.queue, method).then(res => {
+        sender.call<string>(rec.moduleQueue, method).then(res => {
           const err =
             res === response
               ? null

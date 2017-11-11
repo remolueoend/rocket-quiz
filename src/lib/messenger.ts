@@ -13,10 +13,17 @@ import {
   parseJsonMessage,
   createJsonMessage,
   createErrorMessage,
+  createRequestMessage,
+  createResponseMessage,
   AppMessage,
   JsonMessage,
-  ErrorMessage,
+  RpcError,
+  MESSAGE_TYPE,
+  getMethod,
+  hasError,
 } from './message-helpers'
+import AppError from './AppError'
+import { forEach } from 'ramda'
 
 export const Events = {
   message: Symbol('events.onmessage'),
@@ -25,7 +32,7 @@ export const Events = {
 
 export interface CorrelationCallback<TResp> {
   resolve: (content: TResp, msg: JsonMessage<TResp>) => void
-  reject: (error: ErrorMessage) => void
+  reject: (error: RpcError) => void
 }
 
 export type MethodHandler<TMsgContent extends {}> = (
@@ -41,10 +48,16 @@ export type MethodRegistrations = { [method: string]: MethodRegistration<{}> }
 
 export interface MessengerOptions {
   exclusive: boolean
+  exchangeName?: string
+  exchangeDurable?: boolean
+  listen?: string[]
 }
 
 const defaultOpts: MessengerOptions = {
   exclusive: false,
+  exchangeName: uuid(),
+  exchangeDurable: false,
+  listen: [],
 }
 
 export class Messenger extends EventEmitter {
@@ -57,13 +70,17 @@ export class Messenger extends EventEmitter {
     public readonly moduleName: string,
     public readonly conn: Connection,
     public readonly channel: Channel,
-    public readonly queue: string,
+    public readonly exchange: string,
+    public readonly moduleQueue: string,
+    public readonly processQueue: string,
     options: MessengerOptions,
   ) {
     super()
     this.correlations = {}
     this.methodRegistrations = {}
-    this.listenOnQueue(queue, msg => this.handleMessage(msg))
+
+    this.listenOnQueue(moduleQueue, msg => this.handleMessage(msg))
+    this.listenOnQueue(processQueue, msg => this.handleMessage(msg))
   }
 
   /**
@@ -75,11 +92,20 @@ export class Messenger extends EventEmitter {
    * @param message The request message to send.
    */
   public sendRequest<TResponse>(queue: string, message: AppMessage) {
-    const corrId = uuid()
-    this.sendToQueue(queue, message, {
-      replyTo: this.queue,
-      correlationId: corrId,
-    })
+    const corrId = message.properties.correlationId
+    if (!corrId) {
+      throw new AppError(
+        1,
+        'Messenger.sendRequest: Message has no correlation ID',
+      )
+    }
+    this.sendToQueue(
+      queue,
+      message,
+      mergeDeepRight(message.properties || {}, {
+        replyTo: this.moduleQueue,
+      }),
+    )
     return new Promise<TResponse>((resolve, reject) => {
       this.correlations[corrId] = { resolve, reject } as any
     })
@@ -95,15 +121,12 @@ export class Messenger extends EventEmitter {
   public sendToQueue(
     queue: string,
     message: AppMessage,
-    options?: Options.Publish,
+    options: Options.Publish = {},
   ) {
     return this.channel.sendToQueue(
       queue,
       message.content,
-      mergeDeepRight(options, {
-        contentType: message.contentType,
-        type: message.type,
-      }),
+      mergeDeepRight(message.properties || {}, options),
     )
   }
 
@@ -156,7 +179,7 @@ export class Messenger extends EventEmitter {
   ) {
     return this.sendRequest<TResp>(
       queueName,
-      createJsonMessage(params || {}, method),
+      createRequestMessage(params || {}, method),
     )
   }
 
@@ -169,23 +192,28 @@ export class Messenger extends EventEmitter {
   protected handleMessage(msg: Message | null) {
     this.emit(Events.message, msg)
     if (!msg) return
-    const corrId: string | undefined = msg.properties.correlationId
-    if (typeof corrId !== 'undefined') {
-      if (this.correlations[corrId]) {
-        this.handleResponse(msg, this.correlations[corrId])
-        // reply queue and type = method must be set:
-      } else if (msg.properties.replyTo && msg.properties.type !== 'app-msg') {
-        this.handleRequest(msg, corrId, msg.properties.replyTo)
-      } else {
-        // todo: warning: message has correlationId but is not response nor request
-      }
+    switch (msg.properties.type) {
+      case MESSAGE_TYPE.REQUEST:
+        this.handleRequest(msg)
+      case MESSAGE_TYPE.RESPONSE:
+        this.handleResponse(msg)
     }
     this.channel.ack(msg)
   }
 
-  protected handleRequest(msg: Message, corrId: string, replyQueue: string) {
+  protected handleRequest(msg: Message) {
+    const replyQueue = msg.properties.replyTo
+    const corrId = msg.properties.correlationId
+    if (!replyQueue) {
+      // todo: send log message: Invalid requst message
+      return
+    }
+    if (!corrId) {
+      // todo: send log message: Invalid requst message
+      return
+    }
     this.emit(Events.request, msg)
-    const methodName = msg.properties.type
+    const methodName = getMethod(msg)
     const method = this.methodRegistrations[methodName]
     try {
       if (!method) {
@@ -197,15 +225,10 @@ export class Messenger extends EventEmitter {
           ? handlerResp as PromiseLike<any>
           : Promise.resolve(handlerResp)
       handlerRespPromise.then(respContent => {
-        this.sendToQueue(replyQueue, createJsonMessage(respContent), {
-          correlationId: corrId,
-        })
+        this.sendToQueue(replyQueue, createResponseMessage(respContent, msg))
       })
     } catch (err) {
-      this.sendToQueue(replyQueue, createErrorMessage(err), {
-        correlationId: corrId,
-        type: '__error',
-      })
+      this.sendToQueue(replyQueue, createErrorMessage(err, msg))
     }
   }
 
@@ -216,15 +239,22 @@ export class Messenger extends EventEmitter {
    * @param msg the reponse message to handle
    * @param corrId The correlation ID of the message.
    */
-  protected handleResponse<TResp>(
-    msg: Message,
-    callback: CorrelationCallback<TResp>,
-  ) {
-    const appMsg = parseJsonMessage(msg)
-    if (appMsg.type === '__error') {
-      callback.reject(appMsg as ErrorMessage)
+  protected handleResponse<TResp>(msg: Message) {
+    const corrId: string | undefined = msg.properties.correlationId
+    const callback = corrId && this.correlations[corrId]
+    if (!corrId) {
+      return
+      // todo log invalid response: No correlation ID
+    }
+    if (!callback) {
+      return
+      // todo log invalid response: No request callback
+    }
+    const parsed = parseJsonMessage(msg)
+    if (hasError(msg)) {
+      callback.reject(parsed as RpcError)
     } else {
-      callback.resolve(appMsg.content as TResp, appMsg as JsonMessage<TResp>)
+      callback.resolve(parsed.content as TResp, parsed as JsonMessage<TResp>)
     }
   }
 }
@@ -239,26 +269,30 @@ export const createMessenger = (
   moduleName: string,
   options?: MessengerOptions,
 ) =>
-  connect('amqp://localhost')
-    .then(conn =>
-      conn.createChannel().then(ch => {
-        const opts = mergeDeepRight(defaultOpts, options || {})
-        return ch
-          .assertQueue(opts.exclusive ? '' : moduleName, {
-            exclusive: opts.exclusive,
-          })
-          .then(
-            q =>
-              [conn, ch, q, opts] as [
-                Connection,
-                Channel,
-                Replies.AssertQueue,
-                MessengerOptions
-              ],
-          )
-      }),
-    )
-    .then(
-      ([conn, channel, q, opts]) =>
-        new Messenger(moduleName, conn, channel, q.queue, opts),
-    )
+  connect('amqp://localhost').then(conn =>
+    conn.createChannel().then(ch => {
+      const opts = mergeDeepRight(defaultOpts, options || {})
+      return Promise.all([
+        ch.assertExchange(opts.exchangeName!, 'topic', {
+          durable: opts.exchangeDurable,
+        }),
+        ch.assertQueue(opts.exclusive ? '' : moduleName, {
+          exclusive: opts.exclusive,
+        }),
+        ch.assertQueue('', {
+          exclusive: true,
+        }),
+      ]).then(
+        ([exchange, moduleQueue, processQueue]) =>
+          new Messenger(
+            moduleName,
+            conn,
+            ch,
+            exchange.exchange,
+            moduleQueue.queue,
+            processQueue.queue,
+            opts,
+          ),
+      )
+    }),
+  )
