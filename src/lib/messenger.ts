@@ -24,6 +24,7 @@ import {
 } from './message-helpers'
 import AppError from './AppError'
 import { forEach } from 'ramda'
+import createLog from './log'
 
 export const Events = {
   message: Symbol('events.onmessage'),
@@ -36,6 +37,7 @@ export interface CorrelationCallback<TResp> {
 }
 
 export type MethodHandler<TMsgContent extends {}> = (
+  content: TMsgContent,
   msg: JsonMessage<TMsgContent>,
 ) => any
 
@@ -47,16 +49,16 @@ export type CorrelationMap = { [corrId: string]: CorrelationCallback<{}> }
 export type MethodRegistrations = { [method: string]: MethodRegistration<{}> }
 
 export interface MessengerOptions {
-  exclusive: boolean
-  exchangeName?: string
+  queuesDurable: boolean
   exchangeDurable?: boolean
   listen?: string[]
 }
 
+const logger = createLog('messenger')
+
 const defaultOpts: MessengerOptions = {
-  exclusive: false,
-  exchangeName: uuid(),
-  exchangeDurable: false,
+  queuesDurable: false,
+  exchangeDurable: true,
   listen: [],
 }
 
@@ -78,6 +80,12 @@ export class Messenger extends EventEmitter {
     super()
     this.correlations = {}
     this.methodRegistrations = {}
+    this.options = mergeDeepRight(defaultOpts, options || {})
+
+    forEach(key => channel.bindQueue(moduleQueue, exchange, key), [
+      ...(this.options.listen || []),
+      moduleName,
+    ])
 
     this.listenOnQueue(moduleQueue, msg => this.handleMessage(msg))
     this.listenOnQueue(processQueue, msg => this.handleMessage(msg))
@@ -91,7 +99,7 @@ export class Messenger extends EventEmitter {
    * @param queue The name of the queue to send the request to.
    * @param message The request message to send.
    */
-  public sendRequest<TResponse>(queue: string, message: AppMessage) {
+  public sendRequest<TResponse>(key: string, message: AppMessage) {
     const corrId = message.properties.correlationId
     if (!corrId) {
       throw new AppError(
@@ -99,11 +107,12 @@ export class Messenger extends EventEmitter {
         'Messenger.sendRequest: Message has no correlation ID',
       )
     }
-    this.sendToQueue(
-      queue,
+    logger.debug('sendRequest', key)
+    this.sendToExchange(
+      key,
       message,
       mergeDeepRight(message.properties || {}, {
-        replyTo: this.moduleQueue,
+        replyTo: this.processQueue,
       }),
     )
     return new Promise<TResponse>((resolve, reject) => {
@@ -125,6 +134,20 @@ export class Messenger extends EventEmitter {
   ) {
     return this.channel.sendToQueue(
       queue,
+      message.content,
+      mergeDeepRight(message.properties || {}, options),
+    )
+  }
+
+  public sendToExchange(
+    key: string,
+    message: AppMessage,
+    options: Options.Publish = {},
+  ) {
+    logger.debug('sendToExchange', key, this.exchange)
+    return this.channel.publish(
+      this.exchange,
+      key,
       message.content,
       mergeDeepRight(message.properties || {}, options),
     )
@@ -163,7 +186,12 @@ export class Messenger extends EventEmitter {
    * but does not have to be!
    * @param method The method to call
    */
-  public call<TResp>(queueName: string, method: string): Promise<TResp>
+  public call<TResp>(key: string, method: string): Promise<TResp>
+  public call<TResp, TParams>(
+    key: string,
+    method: string,
+    params: TParams,
+  ): Promise<TResp>
   /**
    * Calls a method of another client by sending a request message.
    * 
@@ -172,13 +200,9 @@ export class Messenger extends EventEmitter {
    * @param method The method to call
    * @param params Optional method params to send.
    */
-  public call<TResp, TParams>(
-    queueName: string,
-    method: string,
-    params?: TParams,
-  ) {
+  public call<TResp, TParams>(key: string, method: string, params?: TParams) {
     return this.sendRequest<TResp>(
-      queueName,
+      key,
       createRequestMessage(params || {}, method),
     )
   }
@@ -189,19 +213,22 @@ export class Messenger extends EventEmitter {
    *
    * @param msg The message to handle.
    */
-  protected handleMessage(msg: Message | null) {
+  public handleMessage(msg: Message | null) {
     this.emit(Events.message, msg)
     if (!msg) return
     switch (msg.properties.type) {
       case MESSAGE_TYPE.REQUEST:
         this.handleRequest(msg)
+        break
       case MESSAGE_TYPE.RESPONSE:
         this.handleResponse(msg)
+        break
     }
-    this.channel.ack(msg)
   }
 
-  protected handleRequest(msg: Message) {
+  public handleRequest(msg: Message) {
+    this.channel.ack(msg)
+    logger.debug('handleRequest', msg.properties.correlationId)
     const replyQueue = msg.properties.replyTo
     const corrId = msg.properties.correlationId
     if (!replyQueue) {
@@ -219,7 +246,8 @@ export class Messenger extends EventEmitter {
       if (!method) {
         throw new Error(`method ${methodName} not found on ${this.moduleName}.`)
       }
-      const handlerResp = method.handler(parseJsonMessage(msg))
+      const parsed = parseJsonMessage(msg)
+      const handlerResp = method.handler(parsed.content, parsed)
       const handlerRespPromise =
         typeof handlerResp.then === 'function'
           ? handlerResp as PromiseLike<any>
@@ -239,13 +267,17 @@ export class Messenger extends EventEmitter {
    * @param msg the reponse message to handle
    * @param corrId The correlation ID of the message.
    */
-  protected handleResponse<TResp>(msg: Message) {
+  public handleResponse<TResp>(msg: Message) {
+    this.channel.ack(msg)
+    logger.debug('handleResponse', msg.properties.correlationId)
     const corrId: string | undefined = msg.properties.correlationId
     const callback = corrId && this.correlations[corrId]
     if (!corrId) {
       return
       // todo log invalid response: No correlation ID
     }
+
+    delete this.correlations[corrId]
     if (!callback) {
       return
       // todo log invalid response: No request callback
@@ -267,17 +299,18 @@ export class Messenger extends EventEmitter {
  */
 export const createMessenger = (
   moduleName: string,
+  exchangeName: string,
   options?: MessengerOptions,
 ) =>
   connect('amqp://localhost').then(conn =>
     conn.createChannel().then(ch => {
       const opts = mergeDeepRight(defaultOpts, options || {})
       return Promise.all([
-        ch.assertExchange(opts.exchangeName!, 'topic', {
+        ch.assertExchange(exchangeName, 'topic', {
           durable: opts.exchangeDurable,
         }),
-        ch.assertQueue(opts.exclusive ? '' : moduleName, {
-          exclusive: opts.exclusive,
+        ch.assertQueue(opts.queuesDurable ? moduleName : '', {
+          exclusive: !opts.queuesDurable,
         }),
         ch.assertQueue('', {
           exclusive: true,

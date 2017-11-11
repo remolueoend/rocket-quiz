@@ -3,9 +3,21 @@ import * as fs from 'fs'
 import * as pathHelper from 'path'
 import { mergeDeepRight } from 'ramda'
 
+export interface BaseModuleConfig {
+  logLevel: string
+}
+
 export interface AppConfig {
+  logging: {
+    logLevel: string
+    logDir: string
+  }
+  modules: {
+    [moduleName: string]: BaseModuleConfig
+    messenger: BaseModuleConfig
+  }
   adapters: {
-    'rocketChat': {
+    rocketChat: {
       url: string
       username: string
       passwordHash: string
@@ -13,9 +25,19 @@ export interface AppConfig {
   }
 }
 
+debugger
 export const defaultConfig: AppConfig = {
+  logging: {
+    logLevel: 'debug',
+    logDir: pathHelper.join(__dirname, '../../logs/'),
+  },
+  modules: {
+    messenger: {
+      logLevel: 'debug',
+    },
+  },
   adapters: {
-    'rocketChat': {
+    rocketChat: {
       url:
         'https://please-set-URL-in-app-config-under_adapters.rocket-chat.url',
       username: '',
@@ -25,6 +47,13 @@ export const defaultConfig: AppConfig = {
 }
 
 const configPath = args.config && pathHelper.resolve(args.config)
-const appConfig = configPath && fs.accessSync(configPath) && require(configPath)
+let appConfig: AppConfig
 
-export default mergeDeepRight(defaultConfig, appConfig)
+if (configPath) {
+  fs.accessSync(configPath)
+  appConfig = mergeDeepRight(defaultConfig, require(configPath))
+} else {
+  appConfig = defaultConfig
+}
+
+export default appConfig
