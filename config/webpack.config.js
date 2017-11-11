@@ -1,4 +1,5 @@
 const pathHelper = require('path')
+const NodePathReplacePlugin = require('./NodePathReplacePlugin')
 
 module.exports = {
   context: pathHelper.join(__dirname, '..'),
@@ -20,4 +21,5 @@ module.exports = {
   },
   target: 'node',
   devtool: '#sourcemap',
+  plugins: [new NodePathReplacePlugin()],
 }

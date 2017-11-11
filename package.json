@@ -6,10 +6,12 @@
   "author": "Remo Zumsteg <remolueoend@users.noreply.github.com>",
   "license": "GPL 3.0",
   "dependencies": {
+    "@types/winston": "^2.3.7",
     "amqplib": "^0.5.1",
     "minimist": "^1.2.0",
     "ramda": "^0.25.0",
     "uuid": "^3.1.0",
+    "winston": "^2.4.0",
     "ws": "^3.3.1"
   },
   "devDependencies": {
@@ -35,7 +37,13 @@
     "webpack": "^3.8.1"
   },
   "scripts": {
-    "test": "node ./node_modules/.bin/mocha-webpack --opts ./test/mocha-webpack.opts",
-    "test:watch": "npm run test -- --watch"
+    "pretest": "rabbitmqctl delete_vhost unit_tests && rabbitmqctl add_vhost unit_tests",
+    "test":
+      "node ./node_modules/.bin/mocha-webpack --opts ./test/mocha-webpack.opts",
+    "test:watch": "npm run test -- --watch",
+    "posttest": "rabbitmqctl delete_vhost unit_tests",
+    "start-rabbit": "rabbitmq-server &>/dev/null &",
+    "stop-rabbit": "rabbitmqctl stop",
+    "rm-queues": "./.scripts/rm-queues.sh"
   }
 }
