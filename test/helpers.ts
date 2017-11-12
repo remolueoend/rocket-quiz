@@ -1,24 +1,32 @@
 import { createMessenger, MessengerOptions } from '../src/lib/messenger'
+import { BrokerConfig, defaultConfig } from '../src/lib/config'
 import { mergeDeepRight } from 'ramda'
-import { v4 as uuid } from 'uuid'
 
-export const createMessengers = (
+export const brokerConfig: BrokerConfig = {
+  host: defaultConfig.broker.host,
+  vhost: 'unit_tests',
+  exchangeName: defaultConfig.broker.exchangeName,
+}
+
+export const messengerConfig = {
+  queuesDurable: false,
+  exchangeDurable: false,
+}
+
+export const createMessengers = async (
   modules: string[],
   options?: MessengerOptions,
 ) => {
-  const exchangeUid = uuid()
-  return Promise.all(
+  const messengers = await Promise.all(
     modules.map(m =>
       createMessenger(
         m,
-        'test-exchange',
-        mergeDeepRight(
-          { queuesDurable: false, exchangeDurable: false },
-          options || {},
-        ),
+        brokerConfig,
+        mergeDeepRight(messengerConfig, options || {}),
       ),
     ),
   )
+  return await Promise.all(messengers.map(m => m.listen()))
 }
 
 export const waitFor = <T>(ms: number) =>

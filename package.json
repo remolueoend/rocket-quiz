@@ -37,13 +37,7 @@
     "webpack": "^3.8.1"
   },
   "scripts": {
-    "pretest": "rabbitmqctl delete_vhost unit_tests && rabbitmqctl add_vhost unit_tests",
-    "test":
-      "node ./node_modules/.bin/mocha-webpack --opts ./test/mocha-webpack.opts",
-    "test:watch": "npm run test -- --watch",
-    "posttest": "rabbitmqctl delete_vhost unit_tests",
-    "start-rabbit": "rabbitmq-server &>/dev/null &",
-    "stop-rabbit": "rabbitmqctl stop",
-    "rm-queues": "./.scripts/rm-queues.sh"
+    "test": "make test",
+    "test:watch": "make test.watch"
   }
 }

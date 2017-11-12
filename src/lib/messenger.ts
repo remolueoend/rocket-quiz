@@ -25,6 +25,8 @@ import {
 import AppError from './AppError'
 import { forEach } from 'ramda'
 import createLog from './log'
+import * as UrlHelper from 'url'
+import { BrokerConfig } from './config'
 
 export const Events = {
   message: Symbol('events.onmessage'),
@@ -51,7 +53,7 @@ export type MethodRegistrations = { [method: string]: MethodRegistration<{}> }
 export interface MessengerOptions {
   queuesDurable: boolean
   exchangeDurable?: boolean
-  listen?: string[]
+  routes?: string[]
 }
 
 const logger = createLog('messenger')
@@ -59,7 +61,7 @@ const logger = createLog('messenger')
 const defaultOpts: MessengerOptions = {
   queuesDurable: false,
   exchangeDurable: true,
-  listen: [],
+  routes: [],
 }
 
 export class Messenger extends EventEmitter {
@@ -81,14 +83,21 @@ export class Messenger extends EventEmitter {
     this.correlations = {}
     this.methodRegistrations = {}
     this.options = mergeDeepRight(defaultOpts, options || {})
+  }
 
-    forEach(key => channel.bindQueue(moduleQueue, exchange, key), [
-      ...(this.options.listen || []),
-      moduleName,
-    ])
+  public async listen() {
+    const bindings = await Promise.all(
+      [...(this.options.routes || []), this.moduleName].map(route =>
+        this.channel.bindQueue(this.moduleQueue, this.exchange, route),
+      ),
+    )
+    const listeners = await Promise.all(
+      [this.moduleQueue, this.processQueue].map(queue =>
+        this.listenOnQueue(queue, msg => this.handleMessage(msg)),
+      ),
+    )
 
-    this.listenOnQueue(moduleQueue, msg => this.handleMessage(msg))
-    this.listenOnQueue(processQueue, msg => this.handleMessage(msg))
+    return this
   }
 
   /**
@@ -164,7 +173,7 @@ export class Messenger extends EventEmitter {
     queue: string,
     onMessage: (msg: Message | null) => void,
   ) {
-    this.channel.consume(queue, onMessage, { noAck: false })
+    return this.channel.consume(queue, onMessage, { noAck: false })
   }
 
   /**
@@ -299,14 +308,14 @@ export class Messenger extends EventEmitter {
  */
 export const createMessenger = (
   moduleName: string,
-  exchangeName: string,
+  brokerConfig: BrokerConfig,
   options?: MessengerOptions,
 ) =>
-  connect('amqp://localhost').then(conn =>
+  connect(UrlHelper.resolve(brokerConfig.host, brokerConfig.vhost)).then(conn =>
     conn.createChannel().then(ch => {
       const opts = mergeDeepRight(defaultOpts, options || {})
       return Promise.all([
-        ch.assertExchange(exchangeName, 'topic', {
+        ch.assertExchange(brokerConfig.exchangeName, 'topic', {
           durable: opts.exchangeDurable,
         }),
         ch.assertQueue(opts.queuesDurable ? moduleName : '', {

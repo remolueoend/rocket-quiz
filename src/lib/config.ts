@@ -7,7 +7,14 @@ export interface BaseModuleConfig {
   logLevel: string
 }
 
+export interface BrokerConfig {
+  host: string
+  vhost: string
+  exchangeName: string
+}
+
 export interface AppConfig {
+  broker: BrokerConfig,
   logging: {
     logLevel: string
     logDir: string
@@ -25,8 +32,12 @@ export interface AppConfig {
   }
 }
 
-debugger
 export const defaultConfig: AppConfig = {
+  broker: {
+    host: 'amqp://localhost/',
+    vhost: '/',
+    exchangeName: 'main-exchange'
+  },
   logging: {
     logLevel: 'debug',
     logDir: pathHelper.join(__dirname, '../../logs/'),

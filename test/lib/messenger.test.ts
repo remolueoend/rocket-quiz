@@ -10,7 +10,12 @@ import {
   createResponseMessage,
 } from '../../src/lib/message-helpers'
 import { createMessenger, Messenger, Events } from '../../src/lib/messenger'
-import { createMessengers, waitFor } from '../helpers'
+import {
+  createMessengers,
+  waitFor,
+  messengerConfig,
+  brokerConfig,
+} from '../helpers'
 
 const chai = require('chai')
 chai.use(chaiAsPromised)
@@ -19,10 +24,10 @@ chai.use(sinonChai)
 describe('messenger', () => {
   describe('createMessenger', () => {
     it('resolves a new Messenger instance', () => {
-      return createMessenger('test', 'test1', {
-        exchangeDurable: false,
-        queuesDurable: false,
-      }).then(m => assert.instanceOf(m, Messenger))
+      debugger
+      return createMessenger('test', brokerConfig, messengerConfig).then(m =>
+        assert.instanceOf(m, Messenger),
+      )
     })
   })
   describe('Messenger', () => {
