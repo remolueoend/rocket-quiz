@@ -3,10 +3,10 @@ import { Logger, transports } from 'winston'
 import * as pathHelper from 'path'
 
 export const getLogLevel = (moduleName: string) =>
-  (config.modules[moduleName] && config.modules[moduleName].logLevel) ||
+  (config.services[moduleName] && config.services[moduleName].logLevel) ||
   config.logging.logLevel
 
-export default (moduleName: string) =>
+export const createLogger = (moduleName: string) =>
   new Logger({
     level: getLogLevel(moduleName),
     transports: [
@@ -19,3 +19,5 @@ export default (moduleName: string) =>
       }),
     ],
   })
+
+export default createLogger

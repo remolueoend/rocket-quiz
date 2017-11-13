@@ -1,3 +1,8 @@
+process.on('unhandledRejection', error => {
+  debugger
+  throw error
+})
+
 import 'mocha'
 import { assert, expect } from 'chai'
 import chaiAsPromised = require('chai-as-promised')
@@ -8,6 +13,7 @@ import {
   MESSAGE_TYPE,
   createRequestMessage,
   createResponseMessage,
+  createGenericMessage,
 } from '../../src/lib/message-helpers'
 import { createMessenger, Messenger, Events } from '../../src/lib/messenger'
 import {
@@ -24,7 +30,6 @@ chai.use(sinonChai)
 describe('messenger', () => {
   describe('createMessenger', () => {
     it('resolves a new Messenger instance', () => {
-      debugger
       return createMessenger('test', brokerConfig, messengerConfig).then(m =>
         assert.instanceOf(m, Messenger),
       )
@@ -40,7 +45,7 @@ describe('messenger', () => {
           // if message is not received the test will fail with a timeout:
           rec.on(Events.message, () => done())
           sender.sendToQueue(
-            rec.moduleQueue,
+            rec.serviceQueue,
             createJsonMessage({ data: 'test' }),
           )
         })
@@ -56,7 +61,7 @@ describe('messenger', () => {
           rec.on(Events.request, () => done())
           sender
             .sendRequest(
-              rec.moduleName,
+              rec.serviceName,
               createRequestMessage(
                 {
                   data: 'test',
@@ -100,6 +105,35 @@ describe('messenger', () => {
         messenger.handleMessage(msg)
         assert(handleResponseStub.calledWith(msg))
       })
+
+      it('handles generic messages correctly', async () => {
+        const messenger = await createMessenger('test-messenger3')
+        const handleGenericStub = stub(messenger, 'handleMessageType').returns(
+          {},
+        )
+        const msg = {
+          content: new Buffer([]),
+          fields: {},
+          properties: { type: MESSAGE_TYPE.GENERIC },
+        }
+        messenger.handleMessage(msg)
+        assert(handleGenericStub.calledWith(msg))
+      })
+    })
+
+    describe('handleMessageType', () => {
+      it('calls the appropriate message type handler', done => {
+        createMessengers([
+          'test-messenger4',
+          'test-messenger5',
+        ]).then(([sender, rec]) => {
+          rec.onMessage('test-messenger5.test.foo', () => done())
+          sender.sendToExchange(
+            'test-messenger5.test.foo',
+            createGenericMessage({}),
+          )
+        })
+      })
     })
 
     describe('handleRequest', () => {
@@ -120,7 +154,7 @@ describe('messenger', () => {
       })
 
       it('rejects if the provided method does not exist', () => {
-        return expect(sender.call(rec.moduleName, 'not-existing-method'))
+        return expect(sender.call(rec.serviceName, 'not-existing-method'))
           .rejected
       })
 
@@ -128,7 +162,7 @@ describe('messenger', () => {
         const method = 'test-method'
         const response = 'test-result'
         rec.register(method, () => response)
-        sender.call<string>(rec.moduleName, method).then(res => {
+        sender.call<string>(rec.serviceName, method).then(res => {
           const err =
             res === response
               ? null
@@ -142,7 +176,7 @@ describe('messenger', () => {
         rec.register<{ a: string }>(method, ({ a }) => {
           done(a === 'foo' ? null : new Error('Invalid param.'))
         })
-        sender.call(rec.moduleName, method, { a: 'foo' })
+        sender.call(rec.serviceName, method, { a: 'foo' })
       })
     })
   })

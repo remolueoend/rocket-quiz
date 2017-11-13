@@ -62,10 +62,7 @@ export const createJsonMessage = (
   options?: Options.Publish,
 ) => createMessage(content, type, 'application/json', options)
 
-export const createRequestMessage = (
-  params: {},
-  method: string,
-) => {
+export const createRequestMessage = (params: {}, method: string) => {
   return createJsonMessage(params, MESSAGE_TYPE.REQUEST, {
     headers: {
       method,
@@ -100,6 +97,11 @@ export const createErrorMessage = (error: AppError, reqMsg?: Message) => {
     return createJsonMessage(errPayload, MESSAGE_TYPE.ERROR, options)
   }
 }
+
+export const createGenericMessage = (
+  content: {},
+  options: Options.Publish = {},
+) => createJsonMessage(content, MESSAGE_TYPE.GENERIC, options)
 
 export const parseJsonMessage = <TContent>(
   msg: Message,

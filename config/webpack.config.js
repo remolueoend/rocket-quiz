@@ -4,8 +4,7 @@ const NodePathReplacePlugin = require('./NodePathReplacePlugin')
 module.exports = {
   context: pathHelper.join(__dirname, '..'),
   entry: {
-    index: './src/index.ts',
-    'rocket-adapter': './src/modules/rocket-adapter/index.ts',
+    'rocket-adapter': './src/services/rocket-adapter/index.ts',
   },
   output: {
     path: pathHelper.join(__dirname, '../build'),
@@ -20,6 +19,6 @@ module.exports = {
     rules: [{ test: /\.tsx?$/, loader: 'ts-loader' }],
   },
   target: 'node',
-  devtool: '#sourcemap',
+  devtool: 'inline-source-map',
   plugins: [new NodePathReplacePlugin()],
 }

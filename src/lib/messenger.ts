@@ -43,12 +43,22 @@ export type MethodHandler<TMsgContent extends {}> = (
   msg: JsonMessage<TMsgContent>,
 ) => any
 
+export type MessageHandler<TMsg extends {}> = (
+  content: TMsg,
+  msg: JsonMessage<TMsg>,
+) => void
+
 export interface MethodRegistration<TMsg extends {}> {
+  handler: MethodHandler<TMsg>
+}
+
+export interface MessageRegistration<TMsg extends {}> {
   handler: MethodHandler<TMsg>
 }
 
 export type CorrelationMap = { [corrId: string]: CorrelationCallback<{}> }
 export type MethodRegistrations = { [method: string]: MethodRegistration<{}> }
+export type MessageRegistrations = { [route: string]: MessageRegistration<{}> }
 
 export interface MessengerOptions {
   queuesDurable: boolean
@@ -67,37 +77,43 @@ const defaultOpts: MessengerOptions = {
 export class Messenger extends EventEmitter {
   protected correlations: CorrelationMap
   protected methodRegistrations: MethodRegistrations
+  protected messageRegistrations: MessageRegistrations
 
   public readonly options: MessengerOptions
 
   constructor(
-    public readonly moduleName: string,
+    public readonly serviceName: string,
     public readonly conn: Connection,
     public readonly channel: Channel,
     public readonly exchange: string,
-    public readonly moduleQueue: string,
+    public readonly serviceQueue: string,
     public readonly processQueue: string,
     options: MessengerOptions,
   ) {
     super()
     this.correlations = {}
     this.methodRegistrations = {}
+    this.messageRegistrations = {}
     this.options = mergeDeepRight(defaultOpts, options || {})
   }
 
   public async listen() {
     const bindings = await Promise.all(
-      [...(this.options.routes || []), this.moduleName].map(route =>
-        this.channel.bindQueue(this.moduleQueue, this.exchange, route),
+      [...(this.options.routes || []), `${this.serviceName}.#`].map(route =>
+        this.channel.bindQueue(this.serviceQueue, this.exchange, route),
       ),
     )
     const listeners = await Promise.all(
-      [this.moduleQueue, this.processQueue].map(queue =>
+      [this.serviceQueue, this.processQueue].map(queue =>
         this.listenOnQueue(queue, msg => this.handleMessage(msg)),
       ),
     )
 
     return this
+  }
+  
+  public async close() {
+    this.conn.close()
   }
 
   /**
@@ -108,7 +124,7 @@ export class Messenger extends EventEmitter {
    * @param queue The name of the queue to send the request to.
    * @param message The request message to send.
    */
-  public sendRequest<TResponse>(key: string, message: AppMessage) {
+  public sendRequest<TResponse>(route: string, message: AppMessage) {
     const corrId = message.properties.correlationId
     if (!corrId) {
       throw new AppError(
@@ -116,9 +132,9 @@ export class Messenger extends EventEmitter {
         'Messenger.sendRequest: Message has no correlation ID',
       )
     }
-    logger.debug('sendRequest', key)
+    logger.debug('sendRequest', route)
     this.sendToExchange(
-      key,
+      route,
       message,
       mergeDeepRight(message.properties || {}, {
         replyTo: this.processQueue,
@@ -149,14 +165,14 @@ export class Messenger extends EventEmitter {
   }
 
   public sendToExchange(
-    key: string,
+    route: string,
     message: AppMessage,
     options: Options.Publish = {},
   ) {
-    logger.debug('sendToExchange', key, this.exchange)
+    logger.debug('sendToExchange', route, this.exchange)
     return this.channel.publish(
       this.exchange,
-      key,
+      route,
       message.content,
       mergeDeepRight(message.properties || {}, options),
     )
@@ -188,6 +204,10 @@ export class Messenger extends EventEmitter {
     this.methodRegistrations[method] = { handler } as any
   }
 
+  public onMessage<TMsg>(route: string, handler: MessageHandler<TMsg>) {
+    this.messageRegistrations[route] = { handler } as any
+  }
+
   /**
    * Calls a method of another client by sending a request message.
    * 
@@ -195,12 +215,7 @@ export class Messenger extends EventEmitter {
    * but does not have to be!
    * @param method The method to call
    */
-  public call<TResp>(key: string, method: string): Promise<TResp>
-  public call<TResp, TParams>(
-    key: string,
-    method: string,
-    params: TParams,
-  ): Promise<TResp>
+  public call<TResp>(route: string, method: string): Promise<TResp>
   /**
    * Calls a method of another client by sending a request message.
    * 
@@ -209,9 +224,14 @@ export class Messenger extends EventEmitter {
    * @param method The method to call
    * @param params Optional method params to send.
    */
-  public call<TResp, TParams>(key: string, method: string, params?: TParams) {
+  public call<TResp, TParams>(
+    route: string,
+    method: string,
+    params: TParams,
+  ): Promise<TResp>
+  public call<TResp, TParams>(route: string, method: string, params?: TParams) {
     return this.sendRequest<TResp>(
-      key,
+      route,
       createRequestMessage(params || {}, method),
     )
   }
@@ -232,6 +252,17 @@ export class Messenger extends EventEmitter {
       case MESSAGE_TYPE.RESPONSE:
         this.handleResponse(msg)
         break
+      case MESSAGE_TYPE.GENERIC:
+        this.handleMessageType(msg)
+        break
+    }
+  }
+
+  public handleMessageType(msg: Message) {
+    const registration = this.messageRegistrations[msg.fields.routingKey]
+    if (registration) {
+      const parsed = parseJsonMessage(msg)
+      registration.handler(parsed.content, parsed)
     }
   }
 
@@ -253,7 +284,9 @@ export class Messenger extends EventEmitter {
     const method = this.methodRegistrations[methodName]
     try {
       if (!method) {
-        throw new Error(`method ${methodName} not found on ${this.moduleName}.`)
+        throw new Error(
+          `method ${methodName} not found on ${this.serviceName}.`,
+        )
       }
       const parsed = parseJsonMessage(msg)
       const handlerResp = method.handler(parsed.content, parsed)
@@ -303,11 +336,11 @@ export class Messenger extends EventEmitter {
 /**
  * Returns a promise resolving a newly created messenger.
  *
- * @param moduleName The name of the module which owns the messenger.
+ * @param serviceName The name of the module which owns the messenger.
  * @param options Optional messenger options.
  */
 export const createMessenger = (
-  moduleName: string,
+  serviceName: string,
   brokerConfig: BrokerConfig,
   options?: MessengerOptions,
 ) =>
@@ -318,7 +351,7 @@ export const createMessenger = (
         ch.assertExchange(brokerConfig.exchangeName, 'topic', {
           durable: opts.exchangeDurable,
         }),
-        ch.assertQueue(opts.queuesDurable ? moduleName : '', {
+        ch.assertQueue(opts.queuesDurable ? serviceName : '', {
           exclusive: !opts.queuesDurable,
         }),
         ch.assertQueue('', {
@@ -327,7 +360,7 @@ export const createMessenger = (
       ]).then(
         ([exchange, moduleQueue, processQueue]) =>
           new Messenger(
-            moduleName,
+            serviceName,
             conn,
             ch,
             exchange.exchange,

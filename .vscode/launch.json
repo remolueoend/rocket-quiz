@@ -12,6 +12,16 @@
         "${workspaceFolder}/node_modules/mocha-webpack/bin/mocha-webpack",
       "args": ["--opts", "./test/mocha-webpack.opts"],
       "internalConsoleOptions": "openOnSessionStart"
+    },
+    {
+      "name": "Rocket Adapter",
+      "type": "node",
+      "request": "launch",
+      "preLaunchTask": "build_project",
+      "cwd": "${workspaceFolder}",
+      "program": "${workspaceFolder}/src/services/rocket-adapter/index.ts",
+      "outFiles": ["${workspaceFolder}/build/rocket-adapter.js"],
+      "sourceMaps": true
     }
   ]
 }

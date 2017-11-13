@@ -3,8 +3,9 @@ test_user := "guest"
 rm-queue-script := ./.scripts/rm-queues.sh
 test_bin := ./node_modules/.bin/mocha-webpack
 test_opts := ./test/mocha-webpack.opts
+rocketchat_dir := ./test/rocket.chat/
 
-.PHONY: rabbit.start rabbit.stop rabbit.manage rabbit.rm-queues rabbit.delete-test-vhost rabbit.create-test-vhost test test.watch
+.PHONY: rabbit.start rabbit.stop rabbit.manage rabbit.rm-queues rabbit.delete-test-vhost rabbit.create-test-vhost test test.watch rocketchat.start rocketchat.stop
 
 
 rabbit.start:
@@ -30,9 +31,20 @@ rabbit.create-test-vhost: rabbit.delete-test-vhost
 rabbit.open-log-dir:
 	open /usr/local/var/log/rabbitmq/
 	
+rocketchat.start:
+	cd $(rocketchat_dir) && \
+		docker-compose up -d mongo && \
+		docker-compose up -d mongo-init-replica && \
+		docker-compose up -d rocketchat
+
+rocketchat.stop:
+	cd $(rocketchat_dir) && docker-compose down
+	
 test: rabbit.create-test-vhost
 	node $(test_bin) --opts $(test_opts)
 	
 test.watch: rabbit.create-test-vhost
 	node $(test_bin) --opts $(test_opts) --watch
-	
+
+stop: rocketchat.stop rabbit.stop
+start: rabbit.start rocketchat.start

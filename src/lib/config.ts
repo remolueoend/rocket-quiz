@@ -3,8 +3,17 @@ import * as fs from 'fs'
 import * as pathHelper from 'path'
 import { mergeDeepRight } from 'ramda'
 
-export interface BaseModuleConfig {
+export interface BaseServiceConfig {
   logLevel: string
+}
+
+export interface ChatServiceConfig extends BaseServiceConfig {
+  protocol: string
+  host: string
+  port: number
+  username: string
+  password: string
+  roomName: string
 }
 
 export interface BrokerConfig {
@@ -14,14 +23,15 @@ export interface BrokerConfig {
 }
 
 export interface AppConfig {
-  broker: BrokerConfig,
+  broker: BrokerConfig
   logging: {
     logLevel: string
     logDir: string
   }
-  modules: {
-    [moduleName: string]: BaseModuleConfig
-    messenger: BaseModuleConfig
+  services: {
+    [moduleName: string]: any
+    messenger: BaseServiceConfig
+    chat: ChatServiceConfig
   }
   adapters: {
     rocketChat: {
@@ -36,15 +46,24 @@ export const defaultConfig: AppConfig = {
   broker: {
     host: 'amqp://localhost/',
     vhost: '/',
-    exchangeName: 'main-exchange'
+    exchangeName: 'main-exchange',
   },
   logging: {
     logLevel: 'debug',
     logDir: pathHelper.join(__dirname, '../../logs/'),
   },
-  modules: {
+  services: {
     messenger: {
       logLevel: 'debug',
+    },
+    chat: {
+      logLevel: 'debug',
+      protocol: 'http',
+      host: 'localhost',
+      port: 15673,
+      username: 'quiz-bot',
+      password: 'quiz-bot_pw',
+      roomName: 'quiz',
     },
   },
   adapters: {

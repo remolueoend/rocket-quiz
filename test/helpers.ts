@@ -14,11 +14,11 @@ export const messengerConfig = {
 }
 
 export const createMessengers = async (
-  modules: string[],
+  serviceNames: string[],
   options?: MessengerOptions,
 ) => {
   const messengers = await Promise.all(
-    modules.map(m =>
+    serviceNames.map(m =>
       createMessenger(
         m,
         brokerConfig,
