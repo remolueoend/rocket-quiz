@@ -65,21 +65,40 @@ export interface RocketChatClientType {
   }
 }
 
+export interface IncomingMessageUser {
+  _id: string
+  name: string
+  username: string
+}
+
 export interface IncomingMessageArgs {
   _id: string
   _updatedAt: { $date: number }
-  msg: string;
+  msg: string
   ts: { $date: number }
-  u: {
-    _id: string;
-    name: string;
-    username: string
+  u: IncomingMessageUser
+}
+export interface IncomingRocketMessage {
+  fields: {
+    eventName: string
+    args: IncomingMessageArgs[]
   }
 }
+
 export interface IncomingMessage {
-  fields: {
-    eventName: string,
-    args: IncomingMessageArgs[]
+  user: IncomingMessageUser
+  msg: string
+  updatedAt: number
+}
+
+export const parseIncomingMessage = (
+  msg: IncomingRocketMessage,
+): IncomingMessage => {
+  const args = msg.fields.args[0]
+  return {
+    user: args.u,
+    msg: args.msg,
+    updatedAt: args._updatedAt.$date,
   }
 }
 
@@ -127,8 +146,14 @@ export const postMessage = async (
   message: string,
 ) => toPromise(client.chat, 'postMessage')({ roomId, text: message })
 
-export const handleIncomingMessage = (msg: IncomingMessage) => {
-  
+export const handleIncomingMessage = (
+  client: RocketChatClientType,
+  roomId: string,
+  msg: IncomingMessage,
+) => {
+  if (msg.msg.startsWith('@quiz-bot')) {
+    postMessage(client, roomId, 'you wrote a command!: ' + msg.msg)
+  }
 }
 
 export const start = async () => {
@@ -150,6 +175,12 @@ export const start = async () => {
       console.error(err)
     } else {
       console.log(body)
+      const msg = parseIncomingMessage(body)
+
+      // do not handle own messages:
+      if (msg.user._id !== userInfo.userId) {
+        handleIncomingMessage(client, roomId, msg)
+      }
     }
   })
 }

@@ -21,6 +21,7 @@ export const createMessengers = async (
     serviceNames.map(m =>
       createMessenger(
         m,
+        [`${m}.#`],
         brokerConfig,
         mergeDeepRight(messengerConfig, options || {}),
       ),

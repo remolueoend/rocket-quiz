@@ -30,9 +30,12 @@ chai.use(sinonChai)
 describe('messenger', () => {
   describe('createMessenger', () => {
     it('resolves a new Messenger instance', () => {
-      return createMessenger('test', brokerConfig, messengerConfig).then(m =>
-        assert.instanceOf(m, Messenger),
-      )
+      return createMessenger(
+        'test',
+        [],
+        brokerConfig,
+        messengerConfig,
+      ).then(m => assert.instanceOf(m, Messenger))
     })
   })
   describe('Messenger', () => {
@@ -43,11 +46,37 @@ describe('messenger', () => {
           'test.Messenger.sendToQueue.receiver1',
         ]).then(([sender, rec]) => {
           // if message is not received the test will fail with a timeout:
-          rec.on(Events.message, () => done())
+          rec.on(Events.message, () => {
+            done()
+          })
           sender.sendToQueue(
             rec.serviceQueue,
             createJsonMessage({ data: 'test' }),
           )
+        })
+      })
+    })
+
+    describe('listen', () => {
+      it('starts to listen on a queue with the moduleName', done => {
+        createMessengers([
+          'test.Messenger.sendToQueue.sender1-5',
+          'test.Messenger.sendToQueue.receiver1-5',
+        ]).then(([sender, rec]) => {
+          rec.on(Events.message, msg => done())
+          sender.sendToExchange(
+            `${rec.serviceName}.foo`,
+            createGenericMessage({}),
+          )
+        })
+      })
+
+      it('starts to listen on the provided routes', done => {
+        createMessengers([
+          'test.Messenger.sendToQueue.sender1.6',
+          'test.Messenger.sendToQueue.receiver1.6',
+        ]).then(([sender, rec]) => {
+          done()
         })
       })
     })

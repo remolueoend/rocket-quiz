@@ -39,6 +39,9 @@ rocketchat.start:
 
 rocketchat.stop:
 	cd $(rocketchat_dir) && docker-compose down
+
+rocketchat.open:
+	open http://localhost:15673
 	
 test: rabbit.create-test-vhost
 	node $(test_bin) --opts $(test_opts)

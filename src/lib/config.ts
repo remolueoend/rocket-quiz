@@ -17,9 +17,9 @@ export interface ChatServiceConfig extends BaseServiceConfig {
 }
 
 export interface BrokerConfig {
-  host: string
-  vhost: string
-  exchangeName: string
+  host?: string
+  vhost?: string
+  exchangeName?: string
 }
 
 export interface AppConfig {

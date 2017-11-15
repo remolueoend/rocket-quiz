@@ -26,7 +26,7 @@ import AppError from './AppError'
 import { forEach } from 'ramda'
 import createLog from './log'
 import * as UrlHelper from 'url'
-import { BrokerConfig } from './config'
+import { BrokerConfig, defaultConfig } from './config'
 
 export const Events = {
   message: Symbol('events.onmessage'),
@@ -61,9 +61,8 @@ export type MethodRegistrations = { [method: string]: MethodRegistration<{}> }
 export type MessageRegistrations = { [route: string]: MessageRegistration<{}> }
 
 export interface MessengerOptions {
-  queuesDurable: boolean
+  queuesDurable?: boolean
   exchangeDurable?: boolean
-  routes?: string[]
 }
 
 const logger = createLog('messenger')
@@ -71,7 +70,6 @@ const logger = createLog('messenger')
 const defaultOpts: MessengerOptions = {
   queuesDurable: false,
   exchangeDurable: true,
-  routes: [],
 }
 
 export class Messenger extends EventEmitter {
@@ -85,6 +83,7 @@ export class Messenger extends EventEmitter {
     public readonly serviceName: string,
     public readonly conn: Connection,
     public readonly channel: Channel,
+    public readonly routes: string[],
     public readonly exchange: string,
     public readonly serviceQueue: string,
     public readonly processQueue: string,
@@ -99,7 +98,7 @@ export class Messenger extends EventEmitter {
 
   public async listen() {
     const bindings = await Promise.all(
-      [...(this.options.routes || []), `${this.serviceName}.#`].map(route =>
+      this.routes.map(route =>
         this.channel.bindQueue(this.serviceQueue, this.exchange, route),
       ),
     )
@@ -111,7 +110,7 @@ export class Messenger extends EventEmitter {
 
     return this
   }
-  
+
   public async close() {
     this.conn.close()
   }
@@ -341,33 +340,38 @@ export class Messenger extends EventEmitter {
  */
 export const createMessenger = (
   serviceName: string,
+  routes: string[],
   brokerConfig: BrokerConfig,
   options?: MessengerOptions,
-) =>
-  connect(UrlHelper.resolve(brokerConfig.host, brokerConfig.vhost)).then(conn =>
-    conn.createChannel().then(ch => {
-      const opts = mergeDeepRight(defaultOpts, options || {})
-      return Promise.all([
-        ch.assertExchange(brokerConfig.exchangeName, 'topic', {
-          durable: opts.exchangeDurable,
-        }),
-        ch.assertQueue(opts.queuesDurable ? serviceName : '', {
-          exclusive: !opts.queuesDurable,
-        }),
-        ch.assertQueue('', {
-          exclusive: true,
-        }),
-      ]).then(
-        ([exchange, moduleQueue, processQueue]) =>
-          new Messenger(
-            serviceName,
-            conn,
-            ch,
-            exchange.exchange,
-            moduleQueue.queue,
-            processQueue.queue,
-            opts,
-          ),
-      )
-    }),
+) => {
+  const brokerCfg = mergeDeepRight(defaultConfig.broker, brokerConfig || {})
+  return connect(UrlHelper.resolve(brokerCfg.host!, brokerConfig.vhost!)).then(
+    conn =>
+      conn.createChannel().then(ch => {
+        const opts = mergeDeepRight(defaultOpts, options || {})
+        return Promise.all([
+          ch.assertExchange(brokerCfg.exchangeName!, 'topic', {
+            durable: opts.exchangeDurable,
+          }),
+          ch.assertQueue(opts.queuesDurable ? serviceName : '', {
+            exclusive: !opts.queuesDurable,
+          }),
+          ch.assertQueue('', {
+            exclusive: true,
+          }),
+        ]).then(
+          ([exchange, moduleQueue, processQueue]) =>
+            new Messenger(
+              serviceName,
+              conn,
+              ch,
+              routes,
+              exchange.exchange,
+              moduleQueue.queue,
+              processQueue.queue,
+              opts,
+            ),
+        )
+      }),
   )
+}
