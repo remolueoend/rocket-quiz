@@ -5,7 +5,7 @@ test_bin := ./node_modules/.bin/mocha-webpack
 test_opts := ./test/mocha-webpack.opts
 rocketchat_dir := ./test/rocket.chat/
 
-.PHONY: rabbit.start rabbit.stop rabbit.manage rabbit.rm-queues rabbit.delete-test-vhost rabbit.create-test-vhost test test.watch rocketchat.start rocketchat.stop
+.PHONY: rabbit.start rabbit.stop rabbit.manage rabbit.rm-queues rabbit.delete-test-vhost rabbit.create-test-vhost test test.watch rocketchat.start rocketchat.stop build
 
 
 rabbit.start:
@@ -48,6 +48,9 @@ test: rabbit.create-test-vhost
 	
 test.watch: rabbit.create-test-vhost
 	node $(test_bin) --opts $(test_opts) --watch
+
+build: 
+	webpack --config config/webpack.config.js
 
 stop: rocketchat.stop rabbit.stop
 start: rabbit.start rocketchat.start

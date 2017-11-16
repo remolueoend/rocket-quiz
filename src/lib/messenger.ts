@@ -24,7 +24,7 @@ import {
 } from './message-helpers'
 import AppError from './AppError'
 import { forEach } from 'ramda'
-import createLog from './log'
+import createLogger, { Logger } from './log'
 import * as UrlHelper from 'url'
 import { BrokerConfig, defaultConfig } from './config'
 
@@ -65,8 +65,6 @@ export interface MessengerOptions {
   exchangeDurable?: boolean
 }
 
-const logger = createLog('messenger')
-
 const defaultOpts: MessengerOptions = {
   queuesDurable: false,
   exchangeDurable: true,
@@ -76,6 +74,7 @@ export class Messenger extends EventEmitter {
   protected correlations: CorrelationMap
   protected methodRegistrations: MethodRegistrations
   protected messageRegistrations: MessageRegistrations
+  protected logger: Logger
 
   public readonly options: MessengerOptions
 
@@ -94,6 +93,7 @@ export class Messenger extends EventEmitter {
     this.methodRegistrations = {}
     this.messageRegistrations = {}
     this.options = mergeDeepRight(defaultOpts, options || {})
+    this.logger = createLogger(this.serviceName)
   }
 
   public async listen() {
@@ -131,7 +131,7 @@ export class Messenger extends EventEmitter {
         'Messenger.sendRequest: Message has no correlation ID',
       )
     }
-    logger.debug('sendRequest', route)
+    this.logger.debug('sendRequest', route)
     this.sendToExchange(
       route,
       message,
@@ -168,7 +168,7 @@ export class Messenger extends EventEmitter {
     message: AppMessage,
     options: Options.Publish = {},
   ) {
-    logger.debug('sendToExchange', route, this.exchange)
+    this.logger.debug('sendToExchange', route, this.exchange)
     return this.channel.publish(
       this.exchange,
       route,
@@ -267,7 +267,7 @@ export class Messenger extends EventEmitter {
 
   public handleRequest(msg: Message) {
     this.channel.ack(msg)
-    logger.debug('handleRequest', msg.properties.correlationId)
+    this.logger.debug('handleRequest', msg.properties.correlationId)
     const replyQueue = msg.properties.replyTo
     const corrId = msg.properties.correlationId
     if (!replyQueue) {
@@ -310,7 +310,7 @@ export class Messenger extends EventEmitter {
    */
   public handleResponse<TResp>(msg: Message) {
     this.channel.ack(msg)
-    logger.debug('handleResponse', msg.properties.correlationId)
+    this.logger.debug('handleResponse', msg.properties.correlationId)
     const corrId: string | undefined = msg.properties.correlationId
     const callback = corrId && this.correlations[corrId]
     if (!corrId) {

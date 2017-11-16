@@ -22,6 +22,30 @@
       "program": "${workspaceFolder}/src/services/rocket-adapter/index.ts",
       "outFiles": ["${workspaceFolder}/build/rocket-adapter.js"],
       "sourceMaps": true
+    },
+    {
+      "name": "REPL",
+      "type": "node",
+      "request": "launch",
+      "preLaunchTask": "build_project",
+      "cwd": "${workspaceFolder}",
+      "program": "${workspaceFolder}/src/services/repl/index.ts",
+      "outFiles": [
+        "${workspaceFolder}/build/repl.js"
+      ],
+      "sourceMaps": true
+    },
+    {
+      "name": "Logger",
+      "type": "node",
+      "request": "launch",
+      "preLaunchTask": "build_project",
+      "cwd": "${workspaceFolder}",
+      "program": "${workspaceFolder}/src/services/logger/index.ts",
+      "outFiles": [
+        "${workspaceFolder}/build/logger.js"
+      ],
+      "sourceMaps": true
     }
   ]
 }

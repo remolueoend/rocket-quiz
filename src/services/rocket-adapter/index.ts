@@ -1,6 +1,12 @@
+// Will crash the whole process if an unhandled promise rejection is raised.
+process.on('unhandledRejection', error => {
+  throw error
+})
+
 import config from '../../lib/config'
-import { createLogger } from '../../lib/log'
-import { createMessenger } from '../../lib/messenger'
+import { createLogger, Logger } from '../../lib/log'
+import { createMessenger, Messenger } from '../../lib/messenger'
+import { createGenericMessage } from '../../lib/message-helpers'
 const RocketChatClient = require('rocketchat').RocketChatClient
 import AppError from '../../lib/AppError'
 
@@ -65,7 +71,7 @@ export interface RocketChatClientType {
   }
 }
 
-export interface IncomingMessageUser {
+export interface RocketChatUser {
   _id: string
   name: string
   username: string
@@ -76,7 +82,7 @@ export interface IncomingMessageArgs {
   _updatedAt: { $date: number }
   msg: string
   ts: { $date: number }
-  u: IncomingMessageUser
+  u: RocketChatUser
 }
 export interface IncomingRocketMessage {
   fields: {
@@ -86,35 +92,117 @@ export interface IncomingRocketMessage {
 }
 
 export interface IncomingMessage {
-  user: IncomingMessageUser
-  msg: string
+  user: RocketChatUser
+  content: string
   updatedAt: number
 }
 
-export const parseIncomingMessage = (
-  msg: IncomingRocketMessage,
-): IncomingMessage => {
-  const args = msg.fields.args[0]
-  return {
-    user: args.u,
-    msg: args.msg,
-    updatedAt: args._updatedAt.$date,
+export interface OutgoingMessage {
+  content: Array<{
+    type: 'text' | 'mention'
+    value: string | RocketChatUser
+  }>
+}
+
+/**
+ * Class providing an interface to a rocket chat client with an authenticated user.
+ */
+export class RocketAdapter {
+  protected logger: Logger
+
+  constructor(
+    public readonly client: RocketChatClientType,
+    public readonly botInfo: UserInfo,
+    public readonly roomId: string,
+    public readonly messenger: Messenger,
+  ) {
+    this.logger = createLogger('rocketchat')
   }
-}
 
-export const getServerInfo = async (client: RocketChatClientType) => {
-  return toPromise(client.miscellaneous, 'info')
-}
+  /**
+   * Starts a listener for incoming chat messages.
+   */
+  public listen() {
+    this.messenger.listen()
+    this.client.notify.room.onChanged(this.roomId, (err, body) => {
+      if (err) {
+        this.logger.error('notify.room.onChanged failed', this.roomId, err)
+      } else {
+        this.handleIncomingMessage(body)
+      }
+    })
+    this.logger.debug('started listener.')
+  }
 
-export const joinRoom = async (
-  client: RocketChatClientType,
-  userInfo: UserInfo,
-) => {
-  const joined = await toPromise(client.channels, 'invite')(
-    config.services.chat.roomName,
-    userInfo.userId,
-  )
-  return joined
+  /**
+   * Parsed the fields and content of a message retrieved from a rocket chat client.
+   * @param msg The message to parse.
+   */
+  public parseIncomingMessage(msg: IncomingRocketMessage): IncomingMessage {
+    const args = msg.fields.args[0]
+    return {
+      user: args.u,
+      content: args.msg,
+      updatedAt: args._updatedAt.$date,
+    }
+  }
+
+  public parseCommand(
+    msg: IncomingMessage,
+  ): { name: string; sender: RocketChatUser; args: string[] } | null {
+    if (msg.content.startsWith(`@${this.botInfo.userId}`)) {
+      // we ignore the leading @bot:
+      const partials = msg.content.split(' ').slice(1)
+      return {
+        name: partials[0],
+        args: partials.splice(1),
+        sender: msg.user,
+      }
+    } else {
+      return null
+    }
+  }
+
+  /**
+   * Handles an incoming message from the rocket chat client.
+   * @param msg The incoming message to handle.
+   */
+  public handleIncomingMessage(msg: IncomingRocketMessage) {
+    const parsed = this.parseIncomingMessage(msg)
+    const cmd = this.parseCommand(parsed)
+    if (cmd) {
+      this.logger.debug('propagating command', cmd.name, cmd.args)
+      this.messenger.sendToExchange(
+        'chat.incoming.command',
+        createGenericMessage(cmd),
+      )
+    } else {
+      this.logger.debug('propagating message')
+      this.messenger.sendToExchange(
+        'chat.incoming.message',
+        createGenericMessage(parsed),
+      )
+    }
+  }
+
+  /**
+   * Sends a message to 
+   * @param msg The message to send.
+   */
+  public postMessage(msg: OutgoingMessage) {
+    const msgText = msg.content
+      .map(
+        p =>
+          p.type === 'text'
+            ? p.value as string
+            : `@${(p.value as RocketChatUser).username}`,
+      )
+      .join(' ')
+    return toPromise(this.client.chat, 'postMessage')({
+      roomId: this.roomId,
+      text: msgText,
+    })
+  }
 }
 
 export const getRoomList = async (client: RocketChatClientType) =>
@@ -140,23 +228,7 @@ export const connect = async (): Promise<[RocketChatClientType, UserInfo]> => {
   })
 }
 
-export const postMessage = async (
-  client: RocketChatClientType,
-  roomId: string,
-  message: string,
-) => toPromise(client.chat, 'postMessage')({ roomId, text: message })
-
-export const handleIncomingMessage = (
-  client: RocketChatClientType,
-  roomId: string,
-  msg: IncomingMessage,
-) => {
-  if (msg.msg.startsWith('@quiz-bot')) {
-    postMessage(client, roomId, 'you wrote a command!: ' + msg.msg)
-  }
-}
-
-export const start = async () => {
+const createAdapter = async () => {
   const [client, userInfo] = await connect()
   const rooms = await getRoomList(client)
   const quizRoom = rooms.channels.find(
@@ -168,21 +240,15 @@ export const start = async () => {
       `Could not find room with name: ${config.services.chat.roomName}`,
     )
   }
-  const roomId = quizRoom._id
-  postMessage(client, roomId, `I'm online!`)
-  client.notify.room.onChanged(roomId, (err, body) => {
-    if (err) {
-      console.error(err)
-    } else {
-      console.log(body)
-      const msg = parseIncomingMessage(body)
 
-      // do not handle own messages:
-      if (msg.user._id !== userInfo.userId) {
-        handleIncomingMessage(client, roomId, msg)
-      }
-    }
-  })
+  const messenger = await createMessenger(
+    'rocketchat',
+    ['chat.#'],
+    config.broker,
+  )
+  return new RocketAdapter(client, userInfo, quizRoom.name, messenger)
 }
 
-start()
+createAdapter().then(adapter => {
+  adapter.listen()
+})

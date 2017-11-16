@@ -1,13 +1,16 @@
 import config from './config'
-import { Logger, transports } from 'winston'
+import { Logger as WinstonLogger, transports } from 'winston'
+import * as Winston from 'winston'
 import * as pathHelper from 'path'
+
+export type Logger = Winston.LoggerInstance
 
 export const getLogLevel = (moduleName: string) =>
   (config.services[moduleName] && config.services[moduleName].logLevel) ||
   config.logging.logLevel
 
 export const createLogger = (moduleName: string) =>
-  new Logger({
+  new WinstonLogger({
     level: getLogLevel(moduleName),
     transports: [
       new transports.File({
