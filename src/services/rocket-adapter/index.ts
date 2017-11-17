@@ -1,5 +1,6 @@
 // Will crash the whole process if an unhandled promise rejection is raised.
 process.on('unhandledRejection', error => {
+  debugger
   throw error
 })
 
@@ -9,6 +10,7 @@ import { createMessenger, Messenger } from '../../lib/messenger'
 import { createGenericMessage } from '../../lib/message-helpers'
 const RocketChatClient = require('rocketchat').RocketChatClient
 import AppError from '../../lib/AppError'
+import { BaseService } from '../BaseService'
 
 export type UserInfo = {
   userId: string
@@ -31,7 +33,10 @@ const toPromise = <TContext>(
       const fn: Function = obj[method] as any
       if (typeof fn !== 'function') {
         return reject(
-          new AppError(2, `toPromise: ${method} is not a valid function.`),
+          new AppError(
+            'invalid_arg',
+            `toPromise: ${method} is not a valid function.`,
+          ),
         )
       }
       try {
@@ -95,6 +100,7 @@ export interface IncomingMessage {
   user: RocketChatUser
   content: string
   updatedAt: number
+  messageId: string
 }
 
 export interface OutgoingMessage {
@@ -104,10 +110,14 @@ export interface OutgoingMessage {
   }>
 }
 
+export interface OutgoingResponse extends OutgoingMessage {
+  msgId: string
+}
+
 /**
  * Class providing an interface to a rocket chat client with an authenticated user.
  */
-export class RocketAdapter {
+export class RocketAdapter extends BaseService {
   protected logger: Logger
 
   constructor(
@@ -116,14 +126,19 @@ export class RocketAdapter {
     public readonly roomId: string,
     public readonly messenger: Messenger,
   ) {
+    super(messenger)
     this.logger = createLogger('rocketchat')
+
+    this.onMessage<OutgoingMessage>('chat.outgoing.message', msg =>
+      this.handleOutgoingMessageRequest(msg),
+    )
   }
 
   /**
    * Starts a listener for incoming chat messages.
    */
-  public listen() {
-    this.messenger.listen()
+  public async listen() {
+    await super.listen()
     this.client.notify.room.onChanged(this.roomId, (err, body) => {
       if (err) {
         this.logger.error('notify.room.onChanged failed', this.roomId, err)
@@ -132,6 +147,7 @@ export class RocketAdapter {
       }
     })
     this.logger.debug('started listener.')
+    return this
   }
 
   /**
@@ -144,6 +160,7 @@ export class RocketAdapter {
       user: args.u,
       content: args.msg,
       updatedAt: args._updatedAt.$date,
+      messageId: args._id,
     }
   }
 
@@ -185,6 +202,14 @@ export class RocketAdapter {
     }
   }
 
+  public handleOutgoingMessageRequest(msg: OutgoingMessage) {
+    this.postMessage(msg)
+  }
+
+  public handleOutgoingResponseRequest(msg: OutgoingResponse) {
+    this.postMessage(msg)
+  }
+
   /**
    * Sends a message to 
    * @param msg The message to send.
@@ -219,7 +244,15 @@ export const connect = async (): Promise<[RocketChatClientType, UserInfo]> => {
       password,
       (error: any, userInfo: { userId: string }) => {
         if (error) {
-          reject(error)
+          reject(
+            new AppError(
+              'connect_rocketchat_failed',
+              'failed to connect to rocket chat',
+              {
+                baseError: error,
+              },
+            ),
+          )
         } else {
           resolve([client, userInfo])
         }
@@ -236,7 +269,7 @@ const createAdapter = async () => {
   )
   if (!quizRoom) {
     throw new AppError(
-      4,
+      'rocketchat.invalid_room',
       `Could not find room with name: ${config.services.chat.roomName}`,
     )
   }
@@ -246,7 +279,7 @@ const createAdapter = async () => {
     ['chat.#'],
     config.broker,
   )
-  return new RocketAdapter(client, userInfo, quizRoom.name, messenger)
+  return new RocketAdapter(client, userInfo, quizRoom._id, messenger)
 }
 
 createAdapter().then(adapter => {

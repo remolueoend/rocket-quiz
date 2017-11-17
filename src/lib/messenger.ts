@@ -137,7 +137,7 @@ export class Messenger extends EventEmitter {
     const corrId = message.properties.correlationId
     if (!corrId) {
       throw new AppError(
-        1,
+        'messenger.missing_correlation_id',
         'Messenger.sendRequest: Message has no correlation ID',
       )
     }
@@ -369,34 +369,40 @@ export const createMessenger = (
   options?: MessengerOptions,
 ) => {
   const brokerCfg = mergeDeepRight(defaultConfig.broker, brokerConfig || {})
-  return connect(
-    UrlHelper.resolve(brokerCfg.host!, brokerConfig.vhost!),
-  ).then(conn =>
-    conn.createChannel().then(ch => {
-      const opts = mergeDeepRight(defaultOpts, options || {})
-      return Promise.all([
-        ch.assertExchange(brokerCfg.exchangeName!, 'topic', {
-          durable: opts.exchangeDurable,
-        }),
-        ch.assertQueue(opts.queuesDurable ? serviceName : '', {
-          exclusive: !opts.queuesDurable,
-        }),
-        ch.assertQueue('', {
-          exclusive: true,
-        }),
-      ]).then(
-        ([exchange, moduleQueue, processQueue]) =>
-          new Messenger(
-            serviceName,
-            conn,
-            ch,
-            routes,
-            exchange.exchange,
-            moduleQueue.queue,
-            processQueue.queue,
-            opts,
-          ),
+  return connect(UrlHelper.resolve(brokerCfg.host!, brokerConfig.vhost!))
+    .then(conn =>
+      conn.createChannel().then(ch => {
+        const opts = mergeDeepRight(defaultOpts, options || {})
+        return Promise.all([
+          ch.assertExchange(brokerCfg.exchangeName!, 'topic', {
+            durable: opts.exchangeDurable,
+          }),
+          ch.assertQueue(opts.queuesDurable ? serviceName : '', {
+            exclusive: !opts.queuesDurable,
+          }),
+          ch.assertQueue('', {
+            exclusive: true,
+          }),
+        ]).then(
+          ([exchange, moduleQueue, processQueue]) =>
+            new Messenger(
+              serviceName,
+              conn,
+              ch,
+              routes,
+              exchange.exchange,
+              moduleQueue.queue,
+              processQueue.queue,
+              opts,
+            ),
+        )
+      }),
+    )
+    .catch(err => {
+      throw new AppError(
+        'connect_rabbitmq_failed',
+        'Failed to connect to RabbitMQ',
+        err,
       )
-    }),
-  )
+    })
 }

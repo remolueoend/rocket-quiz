@@ -30,7 +30,6 @@ export class RabbitMQTransport extends (Transport as {
   log(level: any, message: string, meta: {}, callback: () => void) {
     this.getMessenger.then(messenger => {
       messenger.sendToExchange('log.write', createGenericMessage({ level, message, meta }))
-      debugger
       callback && callback()
     })
   }

@@ -7,6 +7,7 @@ module.exports = {
     'rocket-adapter': './src/services/rocket-adapter/index.ts',
     repl: './src/services/repl/index.ts',
     logger: './src/services/logger/index.ts',
+    'cmd-interpreter': './src/services/cmd-interpreter/index.ts',
   },
   output: {
     path: pathHelper.join(__dirname, '../build'),
