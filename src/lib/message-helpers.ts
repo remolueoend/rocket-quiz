@@ -21,6 +21,7 @@ export interface JsonMessage<TContent extends {}> {
   type: string
   method: string
   content: TContent
+  routingKey: string
 }
 
 export type RpcError = JsonMessage<{
@@ -52,6 +53,7 @@ export const createMessage = (
     properties: mergeDeepRight(options, {
       type,
       contentType,
+      messageId: uuid(),
     }),
   }
 }
@@ -116,5 +118,6 @@ export const parseJsonMessage = <TContent>(
     content: JSON.parse(msg.content.toString()),
     type: msg.properties.type,
     method: getMethod(msg),
+    routingKey: msg.fields.routingKey,
   }
 }

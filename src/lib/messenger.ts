@@ -24,7 +24,6 @@ import {
 } from './message-helpers'
 import AppError from './AppError'
 import { forEach } from 'ramda'
-import createLogger, { Logger } from './log'
 import * as UrlHelper from 'url'
 import { BrokerConfig, defaultConfig } from './config'
 
@@ -74,7 +73,7 @@ export class Messenger extends EventEmitter {
   protected correlations: CorrelationMap
   protected methodRegistrations: MethodRegistrations
   protected messageRegistrations: MessageRegistrations
-  protected logger: Logger
+  protected instanceId: string
 
   public readonly options: MessengerOptions
 
@@ -92,8 +91,8 @@ export class Messenger extends EventEmitter {
     this.correlations = {}
     this.methodRegistrations = {}
     this.messageRegistrations = {}
+    this.instanceId = uuid()
     this.options = mergeDeepRight(defaultOpts, options || {})
-    this.logger = createLogger(this.serviceName)
   }
 
   public async listen() {
@@ -116,6 +115,17 @@ export class Messenger extends EventEmitter {
   }
 
   /**
+   * Logs a message. Currently disabled because we cannot send log messages to the default
+   * logger library. The log lib uses a messenger by itself which causes the creation of
+   * infinite loggers and messengers.
+   *
+   * @param level the log level of the log message
+   * @param message the text based log message
+   * @param meta optional meta object of the message
+   */
+  public log(level: string, message: string, meta: {}) {}
+
+  /**
    * Send a request to the given queue. This methos sends the given message to the queue
    * and returns a promise which gets resolved as soon as a reponse was received for the
    * sent request.
@@ -131,7 +141,7 @@ export class Messenger extends EventEmitter {
         'Messenger.sendRequest: Message has no correlation ID',
       )
     }
-    this.logger.debug('sendRequest', route)
+    this.log('debug', 'sendRequest', { route })
     this.sendToExchange(
       route,
       message,
@@ -159,7 +169,7 @@ export class Messenger extends EventEmitter {
     return this.channel.sendToQueue(
       queue,
       message.content,
-      mergeDeepRight(message.properties || {}, options),
+      mergeDeepRight(this.addMetadata(message.properties || {}), options),
     )
   }
 
@@ -168,12 +178,12 @@ export class Messenger extends EventEmitter {
     message: AppMessage,
     options: Options.Publish = {},
   ) {
-    this.logger.debug('sendToExchange', route, this.exchange)
+    this.log('debug', 'sendToExchange', { route, exchange: this.exchange })
     return this.channel.publish(
       this.exchange,
       route,
       message.content,
-      mergeDeepRight(message.properties || {}, options),
+      mergeDeepRight(this.addMetadata(message.properties || {}), options),
     )
   }
 
@@ -236,14 +246,28 @@ export class Messenger extends EventEmitter {
   }
 
   /**
+   * Returns a new message property object based on the given one and extended
+   * with process specific metadata.
+   *
+   * @param msg The properties to extend
+   */
+  public addMetadata(messageProperties: {}): {} {
+    return mergeDeepRight(messageProperties, {
+      appId: `${this.serviceName}:${this.instanceId}`,
+      timestamp: Date.now(),
+    })
+  }
+
+  /**
    * Handles the given message by either calling the appropriate method or
    * response handler of a previous request.
    *
    * @param msg The message to handle.
    */
   public handleMessage(msg: Message | null) {
-    this.emit(Events.message, msg)
     if (!msg) return
+    this.emit(Events.message, msg)
+    this.log('debug', 'received message', { route: msg!.fields.routingKey })
     switch (msg.properties.type) {
       case MESSAGE_TYPE.REQUEST:
         this.handleRequest(msg)
@@ -267,7 +291,7 @@ export class Messenger extends EventEmitter {
 
   public handleRequest(msg: Message) {
     this.channel.ack(msg)
-    this.logger.debug('handleRequest', msg.properties.correlationId)
+    this.log('debug', 'handleRequest', { id: msg.properties.correlationId })
     const replyQueue = msg.properties.replyTo
     const corrId = msg.properties.correlationId
     if (!replyQueue) {
@@ -310,7 +334,7 @@ export class Messenger extends EventEmitter {
    */
   public handleResponse<TResp>(msg: Message) {
     this.channel.ack(msg)
-    this.logger.debug('handleResponse', msg.properties.correlationId)
+    this.log('debug', 'handleResponse', { id: msg.properties.correlationId })
     const corrId: string | undefined = msg.properties.correlationId
     const callback = corrId && this.correlations[corrId]
     if (!corrId) {
@@ -345,33 +369,34 @@ export const createMessenger = (
   options?: MessengerOptions,
 ) => {
   const brokerCfg = mergeDeepRight(defaultConfig.broker, brokerConfig || {})
-  return connect(UrlHelper.resolve(brokerCfg.host!, brokerConfig.vhost!)).then(
-    conn =>
-      conn.createChannel().then(ch => {
-        const opts = mergeDeepRight(defaultOpts, options || {})
-        return Promise.all([
-          ch.assertExchange(brokerCfg.exchangeName!, 'topic', {
-            durable: opts.exchangeDurable,
-          }),
-          ch.assertQueue(opts.queuesDurable ? serviceName : '', {
-            exclusive: !opts.queuesDurable,
-          }),
-          ch.assertQueue('', {
-            exclusive: true,
-          }),
-        ]).then(
-          ([exchange, moduleQueue, processQueue]) =>
-            new Messenger(
-              serviceName,
-              conn,
-              ch,
-              routes,
-              exchange.exchange,
-              moduleQueue.queue,
-              processQueue.queue,
-              opts,
-            ),
-        )
-      }),
+  return connect(
+    UrlHelper.resolve(brokerCfg.host!, brokerConfig.vhost!),
+  ).then(conn =>
+    conn.createChannel().then(ch => {
+      const opts = mergeDeepRight(defaultOpts, options || {})
+      return Promise.all([
+        ch.assertExchange(brokerCfg.exchangeName!, 'topic', {
+          durable: opts.exchangeDurable,
+        }),
+        ch.assertQueue(opts.queuesDurable ? serviceName : '', {
+          exclusive: !opts.queuesDurable,
+        }),
+        ch.assertQueue('', {
+          exclusive: true,
+        }),
+      ]).then(
+        ([exchange, moduleQueue, processQueue]) =>
+          new Messenger(
+            serviceName,
+            conn,
+            ch,
+            routes,
+            exchange.exchange,
+            moduleQueue.queue,
+            processQueue.queue,
+            opts,
+          ),
+      )
+    }),
   )
 }

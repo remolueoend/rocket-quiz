@@ -35,7 +35,7 @@ export class Repl {
           case 'call':
             return this.handleCall(partials.slice(1))
           case 'send':
-            return this.handleCall(partials.slice(1))
+            return this.handleSend(partials.slice(1))
           default:
             console.log('invalid action ' + action)
         }
@@ -49,7 +49,14 @@ export class Repl {
     const route = partials[0]
     const method = partials[1]
     const content = partials.slice(2).join(' ')
-    this.messenger.call(route, method, JSON.parse(content))
+    this.messenger
+      .call(route, method, JSON.parse(content))
+      .then(res => {
+        console.error(res)
+      })
+      .catch(errRes => {
+        console.error(errRes.content)
+      })
   }
 
   protected handleSend(partials: string[]) {
