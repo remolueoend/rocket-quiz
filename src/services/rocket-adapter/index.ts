@@ -1,6 +1,5 @@
 // Will crash the whole process if an unhandled promise rejection is raised.
 process.on('unhandledRejection', error => {
-  debugger
   throw error
 })
 
@@ -11,48 +10,15 @@ import { createGenericMessage } from '../../lib/message-helpers'
 const RocketChatClient = require('rocketchat').RocketChatClient
 import AppError from '../../lib/AppError'
 import { BaseService } from '../BaseService'
+import { toPromise } from '../../lib/helpers'
+import { v4 } from 'uuid'
+import { pick } from 'ramda'
 
 export type UserInfo = {
   userId: string
 }
 
 type DefaultCallback = (err: Error, body: any) => void
-
-/**
- * Transforms a function acception a (err, data) - callback as last argument into a function
- * returning a promise. 
- * @param obj Object context of the function 
- * @param method The name of the function to call
- */
-const toPromise = <TContext>(
-  obj: TContext,
-  method: keyof TContext,
-): ((...args: any[]) => Promise<any>) => {
-  return (...args: any[]) => {
-    return new Promise((resolve, reject) => {
-      const fn: Function = obj[method] as any
-      if (typeof fn !== 'function') {
-        return reject(
-          new AppError(
-            'invalid_arg',
-            `toPromise: ${method} is not a valid function.`,
-          ),
-        )
-      }
-      try {
-        fn.apply(obj, [
-          ...args,
-          (err: Error, body: any) => {
-            if (err) return reject(err)
-            return resolve(body)
-          },
-        ])
-      } catch (err) {
-        reject(err)
-      }
-    })
-  }
-}
 
 export interface RocketChatClientType {
   joinRoom(id: string, callback: DefaultCallback): void
@@ -100,7 +66,8 @@ export interface IncomingMessage {
   user: RocketChatUser
   content: string
   updatedAt: number
-  messageId: string
+  chatMessageId: string
+  interactionId: string
 }
 
 export interface OutgoingMessage {
@@ -156,25 +123,24 @@ export class RocketAdapter extends BaseService {
    */
   public parseIncomingMessage(msg: IncomingRocketMessage): IncomingMessage {
     const args = msg.fields.args[0]
+    const interactionId = v4()
+
     return {
       user: args.u,
       content: args.msg,
       updatedAt: args._updatedAt.$date,
-      messageId: args._id,
+      chatMessageId: args._id,
+      interactionId,
     }
   }
 
   public parseCommand(
     msg: IncomingMessage,
   ): { name: string; sender: RocketChatUser; args: string[] } | null {
-    if (msg.content.startsWith(`@${this.botInfo.userId}`)) {
+    if (msg.content.startsWith(`@${config.services.chat.username}`)) {
       // we ignore the leading @bot:
       const partials = msg.content.split(' ').slice(1)
-      return {
-        name: partials[0],
-        args: partials.splice(1),
-        sender: msg.user,
-      }
+      return { name: partials[0], args: partials.splice(1), sender: msg.user }
     } else {
       return null
     }
@@ -186,19 +152,26 @@ export class RocketAdapter extends BaseService {
    */
   public handleIncomingMessage(msg: IncomingRocketMessage) {
     const parsed = this.parseIncomingMessage(msg)
+    const username = parsed.user.username
     const cmd = this.parseCommand(parsed)
+    const message = cmd
+      ? createGenericMessage(cmd)
+      : createGenericMessage(parsed)
+    const messageMeta = {
+      ...pick(['interactionId', 'chatMessageId'], parsed),
+      ...{ username, messageId: message.properties.messageId },
+    }
+
     if (cmd) {
-      this.logger.debug('propagating command', cmd.name, cmd.args)
-      this.messenger.sendToExchange(
-        'chat.incoming.command',
-        createGenericMessage(cmd),
-      )
+      this.logger.debug('propagating command', {
+        name: cmd.name,
+        args: cmd.args,
+        message: messageMeta,
+      })
+      this.messenger.sendToExchange('chat.incoming.command', message)
     } else {
-      this.logger.debug('propagating message')
-      this.messenger.sendToExchange(
-        'chat.incoming.message',
-        createGenericMessage(parsed),
-      )
+      this.logger.debug('propagating message', messageMeta)
+      this.messenger.sendToExchange('chat.incoming.message', message)
     }
   }
 
@@ -211,7 +184,7 @@ export class RocketAdapter extends BaseService {
   }
 
   /**
-   * Sends a message to 
+   * Sends a message to
    * @param msg The message to send.
    */
   public postMessage(msg: OutgoingMessage) {
@@ -219,7 +192,7 @@ export class RocketAdapter extends BaseService {
       .map(
         p =>
           p.type === 'text'
-            ? p.value as string
+            ? (p.value as string)
             : `@${(p.value as RocketChatUser).username}`,
       )
       .join(' ')
@@ -231,7 +204,10 @@ export class RocketAdapter extends BaseService {
 }
 
 export const getRoomList = async (client: RocketChatClientType) =>
-  toPromise(client.channels, 'list')({})
+  toPromise<
+    typeof client.channels,
+    { channels: { name: string; _id: string }[] }
+  >(client.channels, 'list')({})
 
 export const connect = async (): Promise<[RocketChatClientType, UserInfo]> => {
   const { protocol, host, port, username, password } = config.services.chat
@@ -265,7 +241,7 @@ const createAdapter = async () => {
   const [client, userInfo] = await connect()
   const rooms = await getRoomList(client)
   const quizRoom = rooms.channels.find(
-    (c: any) => c.name === config.services.chat.roomName,
+    c => c.name === config.services.chat.roomName,
   )
   if (!quizRoom) {
     throw new AppError(

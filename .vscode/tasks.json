@@ -7,7 +7,7 @@
       "label": "Build Project",
       "type": "shell",
       "identifier": "build_project",
-      "command": "webpack",
+      "command": "node_modules/.bin/webpack",
       "args": ["--config", "${workspaceRoot}/config/webpack.config.js"]
     }
   ]

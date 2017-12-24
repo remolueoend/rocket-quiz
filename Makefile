@@ -4,6 +4,7 @@ rm-queue-script := ./.scripts/rm-queues.sh
 test_bin := ./node_modules/.bin/mocha-webpack
 test_opts := ./test/mocha-webpack.opts
 rocketchat_dir := ./test/rocket.chat/
+log_path := ./logs/runtime.log
 
 .PHONY: rabbit.start rabbit.stop rabbit.manage rabbit.rm-queues rabbit.delete-test-vhost rabbit.create-test-vhost test test.watch rocketchat.start rocketchat.stop build
 
@@ -50,7 +51,15 @@ test.watch: rabbit.create-test-vhost
 	node $(test_bin) --opts $(test_opts) --watch
 
 build: 
-	webpack --config config/webpack.config.js
+	./node_modules/.bin/webpack --config config/webpack.config.js
 
-stop: rocketchat.stop rabbit.stop
-start: rabbit.start rocketchat.start
+env.stop: rocketchat.stop rabbit.stop
+env.start: rabbit.start rocketchat.start
+
+env.restart: stop start
+
+start: build
+	node ./build/index.js --apps=$(apps)
+	
+logs: log_path
+	tail -f log_path

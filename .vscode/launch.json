@@ -44,6 +44,17 @@
       "outFiles": ["${workspaceFolder}/build/logger.js"],
       "sourceMaps": true,
       "console": "integratedTerminal"
+    },
+    {
+      "name": "System",
+      "type": "node",
+      "request": "launch",
+      "preLaunchTask": "build_project",
+      "cwd": "${workspaceFolder}",
+      "program": "${workspaceFolder}/src/index.ts",
+      "outFiles": ["${workspaceFolder}/build/index.js"],
+      "sourceMaps": true,
+      "args": []
     }
   ]
 }

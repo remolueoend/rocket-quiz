@@ -9,6 +9,8 @@ import { parseJsonMessage } from '../../lib/message-helpers'
 import config from '../../lib/config'
 import { Logger as WinstonLogger, transports, LoggerInstance } from 'winston'
 import { pick } from 'ramda'
+import * as pathHelper from 'path'
+import { createLogger } from '../../lib/log'
 
 export interface LogRequestMessage {
   level: string
@@ -19,7 +21,7 @@ export interface LogRequestMessage {
 export class LoggerService {
   constructor(
     protected readonly messenger: Messenger,
-    protected readonly winston: LoggerInstance,
+    protected readonly logger: LoggerInstance,
   ) {}
 
   public listen() {
@@ -30,7 +32,7 @@ export class LoggerService {
       if (msg.fields.routingKey !== 'log.write') {
         this.handleLogRequest({
           level: 'debug',
-          message: `message`,
+          message: `message tracked on route "${msg.fields.routingKey}"`,
           meta: pick(
             [
               'contentType:',
@@ -48,25 +50,20 @@ export class LoggerService {
       }
     })
     this.messenger.listen()
+
+    this.logger.log('debug', 'Listener started.')
   }
 
   public handleLogRequest(req: LogRequestMessage) {
-    this.winston.log(req.level, req.message, req.meta)
+    this.logger.log(req.level, req.message, req.meta)
   }
 }
 
 export const createLoggerService = async () => {
   const messenger = await createMessenger('logger', ['#'], config.broker)
-  const winston = new WinstonLogger({
-    transports: [
-      new transports.Console({
-        level: 'debug',
-        colorize: true,
-        prettyPrint: true,
-      }),
-    ],
-  })
-  return new LoggerService(messenger, winston)
+  return new LoggerService(messenger, createLogger('logger'))
 }
 
-createLoggerService().then(logger => logger.listen())
+createLoggerService().then(logger => {
+  logger.listen()
+})
