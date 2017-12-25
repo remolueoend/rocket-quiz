@@ -46,7 +46,8 @@ export const createLogger = (serviceName: string) => {
   const logTransports: TransportInstance[] = isDevelopment
     ? [
         new transports.Console({
-          // label: serviceName,
+          json: process.env['LOG_FORMAT'] === 'json',
+          label: serviceName,
           level: 'debug',
           colorize: true,
           prettyPrint: true,

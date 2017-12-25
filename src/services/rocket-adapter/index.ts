@@ -62,9 +62,9 @@ export interface IncomingRocketMessage {
   }
 }
 
-export interface IncomingMessage {
+export interface IncomingMessageMeta {
   user: RocketChatUser
-  content: string
+  roomId: string
   updatedAt: number
   chatMessageId: string
   interactionId: string
@@ -75,6 +75,7 @@ export interface OutgoingMessage {
     type: 'text' | 'mention'
     value: string | RocketChatUser
   }>
+  roomId?: string
 }
 
 export interface OutgoingResponse extends OutgoingMessage {
@@ -85,16 +86,13 @@ export interface OutgoingResponse extends OutgoingMessage {
  * Class providing an interface to a rocket chat client with an authenticated user.
  */
 export class RocketAdapter extends BaseService {
-  protected logger: Logger
-
   constructor(
     public readonly client: RocketChatClientType,
     public readonly botInfo: UserInfo,
     public readonly roomId: string,
-    public readonly messenger: Messenger,
+    messenger: Messenger,
   ) {
-    super(messenger)
-    this.logger = createLogger('rocketchat')
+    super('rocketchat', messenger)
 
     this.onMessage<OutgoingMessage>('chat.outgoing.message', msg =>
       this.handleOutgoingMessageRequest(msg),
@@ -105,42 +103,47 @@ export class RocketAdapter extends BaseService {
    * Starts a listener for incoming chat messages.
    */
   public async listen() {
-    await super.listen()
     this.client.notify.room.onChanged(this.roomId, (err, body) => {
       if (err) {
         this.logger.error('notify.room.onChanged failed', this.roomId, err)
       } else {
-        this.handleIncomingMessage(body)
+        this.handleIncomingMessage(this.roomId, body)
       }
     })
-    this.logger.debug('started listener.')
-    return this
+
+    return super.listen()
   }
 
   /**
    * Parsed the fields and content of a message retrieved from a rocket chat client.
    * @param msg The message to parse.
    */
-  public parseIncomingMessage(msg: IncomingRocketMessage): IncomingMessage {
+  public parseIncomingMessage(
+    roomId: string,
+    msg: IncomingRocketMessage,
+  ): { text: string; meta: IncomingMessageMeta } {
     const args = msg.fields.args[0]
     const interactionId = v4()
 
     return {
-      user: args.u,
-      content: args.msg,
-      updatedAt: args._updatedAt.$date,
-      chatMessageId: args._id,
-      interactionId,
+      text: args.msg,
+      meta: {
+        roomId,
+        user: args.u,
+        updatedAt: args._updatedAt.$date,
+        chatMessageId: args._id,
+        interactionId,
+      },
     }
   }
 
   public parseCommand(
-    msg: IncomingMessage,
-  ): { name: string; sender: RocketChatUser; args: string[] } | null {
-    if (msg.content.startsWith(`@${config.services.chat.username}`)) {
+    messageContent: string,
+  ): { name: string; args: string[] } | null {
+    if (messageContent.startsWith(`@${config.services.chat.username}`)) {
       // we ignore the leading @bot:
-      const partials = msg.content.split(' ').slice(1)
-      return { name: partials[0], args: partials.splice(1), sender: msg.user }
+      const partials = messageContent.split(' ').slice(1)
+      return { name: partials[0], args: partials.splice(1) }
     } else {
       return null
     }
@@ -150,24 +153,24 @@ export class RocketAdapter extends BaseService {
    * Handles an incoming message from the rocket chat client.
    * @param msg The incoming message to handle.
    */
-  public handleIncomingMessage(msg: IncomingRocketMessage) {
-    const parsed = this.parseIncomingMessage(msg)
-    const username = parsed.user.username
-    const cmd = this.parseCommand(parsed)
+  public handleIncomingMessage(roomId: string, msg: IncomingRocketMessage) {
+    const { text, meta } = this.parseIncomingMessage(roomId, msg)
+    const cmd = this.parseCommand(text)
     const message = cmd
-      ? createGenericMessage(cmd)
-      : createGenericMessage(parsed)
+      ? createGenericMessage({ cmd, meta })
+      : createGenericMessage({ text, meta })
     const messageMeta = {
-      ...pick(['interactionId', 'chatMessageId'], parsed),
-      ...{ username, messageId: message.properties.messageId },
+      ...meta,
+      ...{ messageId: message.properties.messageId },
+    }
+
+    // do no propagate messages sent by ourselves:
+    if (meta.user.username === config.services.chat.username) {
+      return
     }
 
     if (cmd) {
-      this.logger.debug('propagating command', {
-        name: cmd.name,
-        args: cmd.args,
-        message: messageMeta,
-      })
+      this.logger.debug('propagating command', messageMeta)
       this.messenger.sendToExchange('chat.incoming.command', message)
     } else {
       this.logger.debug('propagating message', messageMeta)
@@ -197,7 +200,7 @@ export class RocketAdapter extends BaseService {
       )
       .join(' ')
     return toPromise(this.client.chat, 'postMessage')({
-      roomId: this.roomId,
+      roomId: msg.roomId || this.roomId,
       text: msgText,
     })
   }

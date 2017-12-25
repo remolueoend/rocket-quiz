@@ -8,9 +8,11 @@
       "type": "node",
       "request": "launch",
       "name": "Mocha Tests",
-      "program":
-        "${workspaceFolder}/node_modules/mocha-webpack/bin/mocha-webpack",
-      "args": ["--opts", "./test/mocha-webpack.opts"],
+      "program": "${workspaceFolder}/node_modules/mocha-webpack/bin/mocha-webpack",
+      "args": [
+        "--opts",
+        "./test/mocha-webpack.opts"
+      ],
       "internalConsoleOptions": "openOnSessionStart"
     },
     {
@@ -20,7 +22,9 @@
       "preLaunchTask": "build_project",
       "cwd": "${workspaceFolder}",
       "program": "${workspaceFolder}/src/services/rocket-adapter/index.ts",
-      "outFiles": ["${workspaceFolder}/build/rocket-adapter.js"],
+      "outFiles": [
+        "${workspaceFolder}/build/rocket-adapter.js"
+      ],
       "sourceMaps": true
     },
     {
@@ -30,7 +34,9 @@
       "preLaunchTask": "build_project",
       "cwd": "${workspaceFolder}",
       "program": "${workspaceFolder}/src/services/repl/index.ts",
-      "outFiles": ["${workspaceFolder}/build/repl.js"],
+      "outFiles": [
+        "${workspaceFolder}/build/repl.js"
+      ],
       "sourceMaps": true,
       "console": "integratedTerminal"
     },
@@ -41,7 +47,22 @@
       "preLaunchTask": "build_project",
       "cwd": "${workspaceFolder}",
       "program": "${workspaceFolder}/src/services/logger/index.ts",
-      "outFiles": ["${workspaceFolder}/build/logger.js"],
+      "outFiles": [
+        "${workspaceFolder}/build/logger.js"
+      ],
+      "sourceMaps": true,
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "CMD-Interpreter",
+      "type": "node",
+      "request": "launch",
+      "preLaunchTask": "build_project",
+      "cwd": "${workspaceFolder}",
+      "program": "${workspaceFolder}/src/services/cmd-interpreter/index.ts",
+      "outFiles": [
+        "${workspaceFolder}/build/cmd-interpreter.js"
+      ],
       "sourceMaps": true,
       "console": "integratedTerminal"
     },
@@ -52,9 +73,19 @@
       "preLaunchTask": "build_project",
       "cwd": "${workspaceFolder}",
       "program": "${workspaceFolder}/src/index.ts",
-      "outFiles": ["${workspaceFolder}/build/index.js"],
+      "outFiles": [
+        "${workspaceFolder}/build/index.js"
+      ],
       "sourceMaps": true,
       "args": []
-    }
+    },
+    {
+      "name": "Start",
+      "type": "node",
+      "request": "launch",
+      "cwd": "${workspaceFolder}",
+      "program": "${workspaceFolder}/.scripts/start.js",
+      "args": ["-w"]
+    },
   ]
 }

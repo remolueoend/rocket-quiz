@@ -33,13 +33,6 @@ export interface AppConfig {
     messenger: BaseServiceConfig
     chat: ChatServiceConfig
   }
-  adapters: {
-    rocketChat: {
-      url: string
-      username: string
-      passwordHash: string
-    }
-  }
 }
 
 export const defaultConfig: AppConfig = {
@@ -64,14 +57,6 @@ export const defaultConfig: AppConfig = {
       username: 'quiz-bot',
       password: 'quiz-bot_pw',
       roomName: 'quiz',
-    },
-  },
-  adapters: {
-    rocketChat: {
-      url:
-        'https://please-set-URL-in-app-config-under_adapters.rocket-chat.url',
-      username: '',
-      passwordHash: '',
     },
   },
 }

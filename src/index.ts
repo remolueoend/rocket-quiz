@@ -6,16 +6,7 @@ import { mergeDeepRight } from 'ramda'
 import { toPromise } from './lib/helpers'
 import { createLogger } from './lib/log'
 import chalk from 'chalk'
-const rand = require('random-int')
-
-const colors = ['red', 'green', 'yellow', 'blue', 'magenta', 'cyan']
-let colorMappings: { [s: string]: string } = {}
-const getSrvColor = (s: string) =>
-  colorMappings[s] ||
-  (colorMappings = {
-    ...colorMappings,
-    ...{ [s]: colors[rand(colors.length - 1)] },
-  })[s]
+import { printLog } from './lib/log-formatter'
 
 const args = yargs
   .option('apps', {
@@ -28,6 +19,11 @@ const args = yargs
     type: 'array',
     alias: 'e',
     describe: 'A comma separated list of apps to exclude.',
+  })
+  .option('watch', {
+    type: 'boolean',
+    alias: 'w',
+    describe: 'If provided, pm2 will be started in watch mode.',
   }).argv
 const logger = createLogger('index')
 
@@ -46,11 +42,14 @@ const startup = async () => {
   const startPromises = appList.map(appCfg =>
     toPromise<typeof pm2, Proc>(pm2, 'start')(
       mergeDeepRight(appCfg, {
+        watch: !!args['watch'] ? ['build'] : false,
+        ignore_watch: ['test, node_modules'],
         // we use the service internal logs:
         out_file: '/dev/null',
         error_file: '/dev/null',
-        // out_file: './logs/index.log',
-        // err_file: './logs/index.log',
+        env: {
+          LOG_FORMAT: 'json',
+        },
       }),
     ),
   )
@@ -61,11 +60,7 @@ const startup = async () => {
     bus.on('*', (e: string, data: any) => {
       const serviceName = data.process.name
       if (e !== 'log:PM2' || serviceName !== 'PM2') {
-        console.log(
-          `[${chalk.dim(e)}][${(chalk as any)[getSrvColor(serviceName)](
-            serviceName,
-          )}] ${data.data || data.event}`,
-        )
+        printLog(data, e)
       }
     })
   })

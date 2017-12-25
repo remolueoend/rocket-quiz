@@ -45,6 +45,7 @@
   },
   "scripts": {
     "test": "make test",
-    "test:watch": "make test.watch"
+    "test:watch": "make test.watch",
+    "dev": "./.scripts/dev.js"
   }
 }
