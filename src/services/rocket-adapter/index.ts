@@ -170,7 +170,7 @@ export class RocketAdapter extends BaseService {
     }
 
     if (cmd) {
-      this.logger.debug('propagating command', messageMeta)
+      this.logger.debug('propagating command', { ...messageMeta, cmd })
       this.messenger.sendToExchange('chat.incoming.command', message)
     } else {
       this.logger.debug('propagating message', messageMeta)

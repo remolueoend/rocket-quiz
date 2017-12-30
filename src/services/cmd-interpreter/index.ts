@@ -32,13 +32,22 @@ type CommandHandlerResponse = {
 
 type CommandHandler = (
   message: IncomingCommandMessage,
-) => CommandHandlerResponse
+  messenger: Messenger,
+) => Promise<CommandHandlerResponse>
 
 const commandHandlers: { [name: string]: CommandHandler } = {
-  hello: message => [
+  hello: async message => [
     { type: 'mention', value: message.meta.user },
     { type: 'text', value: 'Hey back!' },
   ],
+  ask: async (message, messenger) => {
+    debugger
+    const questionText = await messenger.call<string>(
+      'questions-api',
+      'getQuestion',
+    )
+    return [{ type: 'text', value: questionText }]
+  },
 }
 
 export class CmdInterpreter extends BaseService {
@@ -50,14 +59,32 @@ export class CmdInterpreter extends BaseService {
     )
   }
 
-  public handleCommand(message: IncomingCommandMessage) {
+  public async handleCommand(message: IncomingCommandMessage) {
     const cmdHandler = commandHandlers[message.cmd.name]
-    const handlerResp = !!cmdHandler
-      ? cmdHandler(message)
-      : [
-          { type: 'mention', value: message.meta.user },
-          { type: 'text', value: 'Could not understand that...' },
+    let handlerResp: CommandHandlerResponse
+    if (!cmdHandler) {
+      handlerResp = [
+        { type: 'mention', value: message.meta.user },
+        { type: 'text', value: 'Could not understand that...' },
+      ]
+    } else {
+      try {
+        handlerResp = await cmdHandler(message, this.messenger)
+      } catch (err) {
+        this.logger.error(
+          'Failed to get question from "questions-api::getQuestion"',
+          {
+            err,
+          },
+        )
+        handlerResp = [
+          {
+            type: 'text',
+            value: 'Sorry, I was not able to get a question. Try again plz..',
+          },
         ]
+      }
+    }
 
     this.messenger.sendToExchange(
       'chat.outgoing.message',

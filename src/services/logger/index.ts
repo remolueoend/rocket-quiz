@@ -12,6 +12,7 @@ import { pick, mergeDeepRight } from 'ramda'
 import * as pathHelper from 'path'
 import { createLogger } from '../../lib/log'
 import { BaseService } from '../BaseService'
+import { printMsgMeta } from '../../lib/log-formatter'
 
 export interface LogRequestMessage {
   level: string
@@ -23,7 +24,7 @@ export class LoggerService extends BaseService {
   constructor(messenger: Messenger) {
     super('logger', messenger)
   }
-  
+
   protected registerMessageListener() {
     this.messenger.onMessage('log.write', (content, msg) => {
       this.handleLogRequest(content as LogRequestMessage)
@@ -33,22 +34,7 @@ export class LoggerService extends BaseService {
         this.handleLogRequest({
           level: 'debug',
           message: `tracked message on exchange`,
-          meta: mergeDeepRight(
-            pick(
-              [
-                'contentType:',
-                'messageId',
-                'timestamp',
-                'type',
-                'appId',
-                'replyTo',
-                'correlationId',
-                'headers',
-              ],
-              msg.properties,
-            ),
-            pick(['routingKey'], msg.fields),
-          ),
+          meta: printMsgMeta(msg),
         })
       }
     })
@@ -65,7 +51,10 @@ export class LoggerService extends BaseService {
 }
 
 export const createLoggerService = async () => {
-  const messenger = await createMessenger('logger', ['#'], config.broker)
+  const messenger = await createMessenger('logger', ['#'], config.broker, {
+    //  logger service listens for all routes, so we have to ignore RPC calls for invalid methods:
+    ignoreInvalidMethod: true,
+  })
   return new LoggerService(messenger)
 }
 

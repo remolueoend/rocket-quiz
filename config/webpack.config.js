@@ -11,6 +11,7 @@ module.exports = {
     repl: './src/services/repl/index.ts',
     logger: './src/services/logger/index.ts',
     'cmd-interpreter': './src/services/cmd-interpreter/index.ts',
+    'questions-api': './src/services/questions-api/index.ts',
   },
   output: {
     path: pathHelper.join(__dirname, '../build'),

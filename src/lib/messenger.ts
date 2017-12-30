@@ -26,6 +26,8 @@ import AppError from './AppError'
 import { forEach } from 'ramda'
 import * as UrlHelper from 'url'
 import { BrokerConfig, defaultConfig } from './config'
+import { Logger, createLogger } from './log'
+import { printMsgMeta } from './log-formatter'
 
 export const Events = {
   message: Symbol('events.onmessage'),
@@ -62,11 +64,13 @@ export type MessageRegistrations = { [route: string]: MessageRegistration<{}> }
 export interface MessengerOptions {
   queuesDurable?: boolean
   exchangeDurable?: boolean
+  ignoreInvalidMethod?: boolean
 }
 
 const defaultOpts: MessengerOptions = {
   queuesDurable: false,
   exchangeDurable: true,
+  ignoreInvalidMethod: false,
 }
 
 export class Messenger extends EventEmitter {
@@ -74,6 +78,7 @@ export class Messenger extends EventEmitter {
   protected methodRegistrations: MethodRegistrations
   protected messageRegistrations: MessageRegistrations
   protected instanceId: string
+  protected logger: Logger
 
   public readonly options: MessengerOptions
 
@@ -93,6 +98,7 @@ export class Messenger extends EventEmitter {
     this.messageRegistrations = {}
     this.instanceId = uuid()
     this.options = mergeDeepRight(defaultOpts, options || {})
+    this.logger = createLogger(serviceName)
   }
 
   public async listen() {
@@ -123,7 +129,9 @@ export class Messenger extends EventEmitter {
    * @param message the text based log message
    * @param meta optional meta object of the message
    */
-  public log(level: string, message: string, meta: {}) {}
+  public log(level: string, message: string, meta?: {}) {
+    this.logger.log(level, message, meta)
+  }
 
   /**
    * Send a request to the given queue. This methos sends the given message to the queue
@@ -141,7 +149,7 @@ export class Messenger extends EventEmitter {
         'Messenger.sendRequest: Message has no correlation ID',
       )
     }
-    this.log('debug', 'sendRequest', { route })
+
     this.sendToExchange(
       route,
       message,
@@ -178,7 +186,11 @@ export class Messenger extends EventEmitter {
     message: AppMessage,
     options: Options.Publish = {},
   ) {
-    this.log('debug', 'sendToExchange', { route, exchange: this.exchange })
+    this.log('debug', 'send to exchange', {
+      route,
+      exchange: this.exchange,
+      message: printMsgMeta(message),
+    })
     return this.channel.publish(
       this.exchange,
       route,
@@ -205,7 +217,7 @@ export class Messenger extends EventEmitter {
    * Registers a method handler under the specified method name. The handler gets called
    * every time an RPC message for the given method was received.
    * The result of the handler will be sent back to the requester.
-   * 
+   *
    * @param method The name of the method to register.
    * @param handler The handler function of the method.
    */
@@ -219,7 +231,7 @@ export class Messenger extends EventEmitter {
 
   /**
    * Calls a method of another client by sending a request message.
-   * 
+   *
    * @param queueName The name of the queue to send the request to. Might be the name of the module
    * but does not have to be!
    * @param method The method to call
@@ -227,7 +239,7 @@ export class Messenger extends EventEmitter {
   public call<TResp>(route: string, method: string): Promise<TResp>
   /**
    * Calls a method of another client by sending a request message.
-   * 
+   *
    * @param queueName The name of the queue to send the request to. Might be the name of the module
    * but does not have to be!
    * @param method The method to call
@@ -267,7 +279,10 @@ export class Messenger extends EventEmitter {
   public handleMessage(msg: Message | null) {
     if (!msg) return
     this.emit(Events.message, msg)
-    this.log('debug', 'received message', { route: msg!.fields.routingKey })
+    this.log('debug', 'received message', {
+      route: msg!.fields.routingKey,
+      message: printMsgMeta(msg),
+    })
     switch (msg.properties.type) {
       case MESSAGE_TYPE.REQUEST:
         this.handleRequest(msg)
@@ -307,15 +322,19 @@ export class Messenger extends EventEmitter {
     const method = this.methodRegistrations[methodName]
     try {
       if (!method) {
-        throw new Error(
-          `method ${methodName} not found on ${this.serviceName}.`,
-        )
+        if (this.options.ignoreInvalidMethod) {
+          return
+        } else {
+          throw new Error(
+            `method ${methodName} not found on ${this.serviceName}.`,
+          )
+        }
       }
       const parsed = parseJsonMessage(msg)
       const handlerResp = method.handler(parsed.content, parsed)
       const handlerRespPromise =
         typeof handlerResp.then === 'function'
-          ? handlerResp as PromiseLike<any>
+          ? (handlerResp as PromiseLike<any>)
           : Promise.resolve(handlerResp)
       handlerRespPromise.then(respContent => {
         this.sendToQueue(replyQueue, createResponseMessage(respContent, msg))

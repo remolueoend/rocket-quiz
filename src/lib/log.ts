@@ -48,11 +48,12 @@ export const createLogger = (serviceName: string) => {
         new transports.Console({
           json: process.env['LOG_FORMAT'] === 'json',
           label: serviceName,
-          level: 'debug',
-          colorize: true,
-          prettyPrint: true,
+          level: (config.services[serviceName] || {}).logLevel || 'info',
+          colorize: false,
+          prettyPrint: false,
           handleExceptions: true,
-          humanReadableUnhandledException: true,
+          humanReadableUnhandledException: false,
+          stringify: true,
         }),
       ]
     : [
@@ -64,11 +65,11 @@ export const createLogger = (serviceName: string) => {
           handleExceptions: true,
           humanReadableUnhandledException: true,
         }),
-        /*new RabbitMQTransport({
+      ]
+  /*new RabbitMQTransport({
       broker: config.broker,
       serviceName,
     }), */
-      ]
   return new WinstonLogger({
     level: getLogLevel(serviceName),
     transports: logTransports,

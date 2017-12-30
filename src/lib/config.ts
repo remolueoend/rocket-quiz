@@ -31,6 +31,7 @@ export interface AppConfig {
   services: {
     [moduleName: string]: any
     messenger: BaseServiceConfig
+    logger: BaseServiceConfig
     chat: ChatServiceConfig
   }
 }
@@ -57,6 +58,9 @@ export const defaultConfig: AppConfig = {
       username: 'quiz-bot',
       password: 'quiz-bot_pw',
       roomName: 'quiz',
+    },
+    logger: {
+      logLevel: 'debug',
     },
   },
 }

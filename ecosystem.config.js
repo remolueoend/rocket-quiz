@@ -19,6 +19,10 @@ module.exports = {
       name: 'cmd-interpreter',
       script: './build/cmd-interpreter.js',
     },
+    {
+      name: 'questions-api',
+      script: './build/questions-api.js',
+    },
   ],
 
   /**
