@@ -299,6 +299,7 @@ export class Messenger extends EventEmitter {
   public handleMessageType(msg: Message) {
     const registration = this.messageRegistrations[msg.fields.routingKey]
     if (registration) {
+      // todo: check content type before parsing:
       const parsed = parseJsonMessage(msg)
       registration.handler(parsed.content, parsed)
     }

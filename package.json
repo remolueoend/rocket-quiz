@@ -6,9 +6,11 @@
   "author": "Remo Zumsteg <remolueoend@users.noreply.github.com>",
   "license": "GPL 3.0",
   "dependencies": {
+    "@types/joi": "^13.0.3",
     "@types/winston": "^2.3.7",
     "amqplib": "^0.5.1",
     "chalk": "^2.3.0",
+    "joi": "^13.0.2",
     "pm2": "^2.7.2",
     "ramda": "^0.25.0",
     "random-int": "^1.0.0",

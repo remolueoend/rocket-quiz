@@ -13,6 +13,38 @@ import { BaseService } from '../BaseService'
 import { toPromise } from '../../lib/helpers'
 import { v4 } from 'uuid'
 import { pick } from 'ramda'
+import * as joi from 'joi'
+
+const rocketUserSchema = joi.object({
+  _id: joi.string(),
+  uername: joi.string(),
+  name: joi.string(),
+})
+
+const outgoingMessageSchema = joi.object({
+  content: joi.array().items(
+    joi.object({
+      type: joi.string().valid(['text', 'mention']),
+      value: [joi.string(), rocketUserSchema],
+    }),
+  ),
+  roomId: joi.string().optional(),
+})
+
+const messageSchemas = {
+  chat: {
+    outgoing: {
+      message: outgoingMessageSchema,
+      response: outgoingMessageSchema.keys({
+        msgId: joi.string(),
+        type: joi
+          .string()
+          .valid(['wrong_answer', 'unknown_command'])
+          .optional(),
+      }),
+    },
+  },
+}
 
 export type UserInfo = {
   userId: string
@@ -80,6 +112,7 @@ export interface OutgoingMessage {
 
 export interface OutgoingResponse extends OutgoingMessage {
   msgId: string
+  type: string
 }
 
 /**
@@ -94,8 +127,15 @@ export class RocketAdapter extends BaseService {
   ) {
     super('rocketchat', messenger)
 
-    this.onMessage<OutgoingMessage>('chat.outgoing.message', msg =>
-      this.handleOutgoingMessageRequest(msg),
+    this.onMessage<OutgoingMessage>(
+      'chat.outgoing.message',
+      msg => this.handleOutgoingMessageRequest(msg),
+      messageSchemas.chat.outgoing.message,
+    )
+    this.onMessage<OutgoingResponse>(
+      'chat.outgoing.response',
+      msg => this.handleOutgoingResponseRequest(msg),
+      messageSchemas.chat.outgoing.response,
     )
   }
 
@@ -178,10 +218,20 @@ export class RocketAdapter extends BaseService {
     }
   }
 
+  /**
+   * Handler for incoming message requests to send to the rocketchat API.
+   *
+   * @param msg the message to send to the rocket chat api.
+   */
   public handleOutgoingMessageRequest(msg: OutgoingMessage) {
     this.postMessage(msg)
   }
 
+  /**
+   * Handler for incoming response requests to send to the rocketchat API.
+   *
+   * @param msg the response message to send to the rocket chat api.
+   */
   public handleOutgoingResponseRequest(msg: OutgoingResponse) {
     this.postMessage(msg)
   }
